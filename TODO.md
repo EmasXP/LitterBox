@@ -1,8 +1,6 @@
 # HIGH
 
-* Open new tab: Open on the same location as the "origin" tab
-* Running an executable opens a terminal where the executable is run. Can it be run without the terminal window?
-* Remember column sizes when navigating between folders, and when the application is started the next time
+* Can you implement this feature? Remember column sizes of the file list when navigating between folders, and also remember it the application is started the next time
 
 # MEDIUM
 
