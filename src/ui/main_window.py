@@ -155,33 +155,56 @@ class FileTab(QWidget):
                 FileOperations.open_with_default(path)
 
     def handle_executable_activation(self, path):
-        """Handle activation of executable files with dialog"""
+        """Handle activation of executable files with smart detection"""
         filename = os.path.basename(path)
-
-        # Create dialog
+        executable_type = FileOperations.get_executable_type(path)
+        
+        if executable_type == 'gui':
+            # GUI applications - run directly without asking
+            success, error = FileOperations.run_executable(path)
+            if not success:
+                QMessageBox.warning(self, "Run Failed", f"Could not run executable:\n{error}")
+            return
+        
+        # For console applications and scripts, show dialog with options
+        type_description = {
+            'console': 'console application',
+            'script': 'script',
+            None: 'executable file'
+        }.get(executable_type, 'executable file')
+        
         dialog = QMessageBox(self)
         dialog.setWindowTitle("Executable File")
-        dialog.setText(f"'{filename}' is an executable file.")
-        dialog.setInformativeText("What would you like to do?")
-
-        # Add custom buttons
-        run_button = dialog.addButton("Run", QMessageBox.ButtonRole.ActionRole)
-
+        dialog.setText(f"'{filename}' is a {type_description}.")
+        dialog.setInformativeText("How would you like to run it?")
+        
+        # Add buttons based on executable type
+        run_terminal_button = dialog.addButton("Run in Terminal", QMessageBox.ButtonRole.ActionRole)
+        run_direct_button = dialog.addButton("Run Directly", QMessageBox.ButtonRole.ActionRole)
+        
         # Only add edit button if the file appears to be a text file
         edit_button = None
         if FileOperations.is_text_file(path):
             edit_button = dialog.addButton("Edit", QMessageBox.ButtonRole.ActionRole)
-
+        
         cancel_button = dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-
-        dialog.setDefaultButton(cancel_button)
-
+        
+        # Set default button based on type
+        if executable_type == 'script':
+            dialog.setDefaultButton(run_terminal_button)
+        else:
+            dialog.setDefaultButton(run_direct_button)
+        
         # Show dialog and handle response
         dialog.exec()
         clicked_button = dialog.clickedButton()
-
-        if clicked_button == run_button:
-            success, error = FileOperations.run_executable(path)
+        
+        if clicked_button == run_terminal_button:
+            success, error = FileOperations.run_executable(path, force_terminal=True)
+            if not success:
+                QMessageBox.warning(self, "Run Failed", f"Could not run executable:\n{error}")
+        elif clicked_button == run_direct_button:
+            success, error = FileOperations.run_executable_direct(path)
             if not success:
                 QMessageBox.warning(self, "Run Failed", f"Could not run executable:\n{error}")
         elif clicked_button == edit_button:

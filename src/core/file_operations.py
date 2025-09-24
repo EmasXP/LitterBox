@@ -164,10 +164,161 @@ class FileOperations:
             return False
 
     @staticmethod
-    def run_executable(path):
-        """Run an executable file"""
+    def get_executable_type(path):
+        """Determine the type of executable: 'gui', 'console', or 'script'"""
         try:
-            # Run the executable in the terminal
+            path_obj = Path(path)
+            if not path_obj.exists() or path_obj.is_dir():
+                return None
+            
+            # Check if it's a script based on file extension or shebang
+            if FileOperations._is_script(path_obj):
+                return 'script'
+            
+            # Check if it's a GUI application
+            if FileOperations._is_gui_executable(path_obj):
+                return 'gui'
+            
+            # Default to console application
+            return 'console'
+            
+        except (OSError, IOError):
+            return None
+    
+    @staticmethod
+    def _is_script(path_obj):
+        """Check if file is a script based on extension or shebang"""
+        # Check common script extensions
+        script_extensions = {'.sh', '.bash', '.zsh', '.fish', '.py', '.pl', '.rb', '.js', '.lua'}
+        if path_obj.suffix.lower() in script_extensions:
+            return True
+        
+        # Check for shebang in files without extension or unknown extensions
+        try:
+            with open(path_obj, 'rb') as f:
+                first_bytes = f.read(2)
+                if first_bytes == b'#!':
+                    return True
+        except (OSError, IOError):
+            pass
+        
+        return False
+    
+    @staticmethod
+    def _is_gui_executable(path_obj):
+        """Check if executable is likely a GUI application"""
+        try:
+            # First, check if it's linked against GUI libraries (most reliable method)
+            try:
+                ldd_result = subprocess.run(['ldd', str(path_obj)], 
+                                          capture_output=True, text=True, timeout=5)
+                if ldd_result.returncode == 0:
+                    ldd_output = ldd_result.stdout.lower()
+                    
+                    # Strong GUI library indicators
+                    gui_libs = [
+                        'libgtk', 'libqt', 'libx11', 'libxcb', 'libwayland',
+                        'libgdk', 'libgio-2.0', 'libcairo', 'libpango',
+                        'libatk', 'libgdkpixbuf', 'libharfbuzz'
+                    ]
+                    
+                    gui_lib_count = sum(1 for lib in gui_libs if lib in ldd_output)
+                    
+                    # If multiple GUI libraries are present, it's likely a GUI app
+                    if gui_lib_count >= 2:
+                        return True
+                    
+                    # Special case: if it has X11 or Wayland, it's likely GUI
+                    if any(lib in ldd_output for lib in ['libx11', 'libxcb', 'libwayland']):
+                        return True
+            
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+            
+            # Check the executable name for GUI patterns
+            name = path_obj.name.lower()
+            gui_name_patterns = [
+                'gui', '-gui', 'window', 'desktop', 'browser', 'viewer',
+                'studio', 'designer', 'player', 'editor'
+            ]
+            
+            # Also check for known GUI applications
+            known_gui_apps = {
+                'firefox', 'chrome', 'chromium', 'gedit', 'kate', 'code', 'vscode',
+                'nautilus', 'dolphin', 'thunar', 'pcmanfm', 'gimp', 'inkscape',
+                'vlc', 'mpv', 'smplayer', 'rhythmbox', 'totem', 'evince',
+                'libreoffice', 'calc', 'writer', 'impress', 'draw', 'math',
+                'thunderbird', 'evolution', 'kmail', 'pidgin', 'discord',
+                'steam', 'lutris', 'blender', 'krita', 'darktable'
+            }
+            
+            if name in known_gui_apps:
+                return True
+            
+            for pattern in gui_name_patterns:
+                if pattern in name:
+                    return True
+            
+            # Use file command as additional check
+            try:
+                result = subprocess.run(['file', str(path_obj)], 
+                                      capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    file_output = result.stdout.lower()
+                    
+                    # Look for specific GUI framework mentions
+                    if any(framework in file_output for framework in ['gtk', 'qt', 'gnome', 'kde']):
+                        return True
+            
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+            
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        
+        return False
+
+    @staticmethod
+    def run_executable(path, force_terminal=False):
+        """Run an executable file with smart detection
+        
+        Args:
+            path: Path to the executable
+            force_terminal: If True, always run in terminal regardless of type
+        """
+        try:
+            if force_terminal:
+                # Force terminal execution
+                return FileOperations._run_in_terminal(path)
+            
+            # Use smart detection
+            executable_type = FileOperations.get_executable_type(path)
+            
+            if executable_type == 'gui':
+                # GUI applications - run directly without terminal
+                subprocess.Popen([path])
+                return True, ""
+            else:
+                # Console applications and scripts - run in terminal by default
+                return FileOperations._run_in_terminal(path)
+            
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+            return False, str(e)
+    
+    @staticmethod
+    def run_executable_direct(path):
+        """Run an executable directly without terminal"""
+        try:
+            subprocess.Popen([path])
+            return True, ""
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+            return False, str(e)
+    
+    @staticmethod
+    def _run_in_terminal(path):
+        """Run executable in a terminal window"""
+        try:
             # Use gnome-terminal if available, otherwise try other common terminals
             terminal_commands = [
                 ['gnome-terminal', '--', 'bash', '-c', f'{path}; read -p "Press Enter to continue..."'],
@@ -183,7 +334,7 @@ class FileOperations:
                 except (subprocess.CalledProcessError, FileNotFoundError):
                     continue
             
-            # If no terminal found, try to run directly
+            # If no terminal found, try to run directly as fallback
             subprocess.Popen([path])
             return True, ""
             

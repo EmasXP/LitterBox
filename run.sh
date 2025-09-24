@@ -14,4 +14,4 @@ else
 fi
 
 # Run the application
-python main.py
+python3 main.py
