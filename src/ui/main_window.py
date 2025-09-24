@@ -480,6 +480,12 @@ class MainWindow(QMainWindow):
 
     def add_new_tab(self, path=None):
         """Add a new tab"""
+        # If no path provided, use current tab's path
+        if path is None:
+            current_tab = self.get_current_tab()
+            if current_tab:
+                path = current_tab.current_path
+        
         tab = FileTab(path)
 
         # Tab title based on path
