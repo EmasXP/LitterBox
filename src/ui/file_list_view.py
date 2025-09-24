@@ -3,7 +3,7 @@ File list view widget - displays files and folders in a detailed list
 """
 from PyQt6.QtWidgets import (QTreeWidget, QTreeWidgetItem, QHeaderView,
                              QAbstractItemView, QMenu, QTreeView)
-from PyQt6.QtCore import pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent
+from PyQt6.QtCore import pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent, QTimer
 from PyQt6.QtGui import QIcon, QDrag, QStandardItemModel, QStandardItem
 from core.file_operations import FileOperations
 from datetime import datetime
@@ -118,6 +118,9 @@ class FileListView(QTreeView):
         self.setup_ui()
         self.setup_connections()
 
+        # Restore column widths after everything is set up
+        self.restore_column_widths()
+
         # Install event filter to catch key events before Qt's built-in handling
         self.installEventFilter(self)
 
@@ -132,15 +135,18 @@ class FileListView(QTreeView):
         self.setSortingEnabled(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        
+
         # Disable inline editing - we want to use modal dialogs for rename
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
         # Configure header
         header = self.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+
+        # Set minimum column widths
+        header.setMinimumSectionSize(50)
 
         # Enable sorting and set default
         header.setSortIndicatorShown(True)
@@ -157,6 +163,39 @@ class FileListView(QTreeView):
         self.doubleClicked.connect(self.on_item_double_clicked)
         self.customContextMenuRequested.connect(self.on_context_menu_requested)
 
+        # Connect to header section resize signal to save column widths
+        header = self.header()
+        header.sectionResized.connect(self.save_column_widths)
+
+    def restore_column_widths(self):
+        """Restore column widths from settings"""
+        default_widths = [200, 100, 150]  # Name, Size, Modified
+        column_widths = self.settings.get_column_widths(default_widths)
+
+        header = self.header()
+        # Try to restore using QTimer to ensure the view is fully initialized
+        QTimer.singleShot(0, lambda: self._apply_column_widths(column_widths))
+
+    def _apply_column_widths(self, widths):
+        """Apply column widths after a short delay"""
+        header = self.header()
+        for i, width in enumerate(widths):
+            if i < header.count():
+                header.resizeSection(i, width)
+                actual_width = header.sectionSize(i)
+                if actual_width != width:
+                    # Try again with a small delay if it didn't take
+                    QTimer.singleShot(10, lambda i=i, w=width: header.resizeSection(i, w))
+
+    def save_column_widths(self):
+        """Save current column widths to settings"""
+        header = self.header()
+        widths = []
+        for i in range(header.count()):
+            widths.append(header.sectionSize(i))
+
+        self.settings.set_column_widths(widths)
+
     def set_path(self, path):
         """Set the current directory path and refresh"""
         self.current_path = path
@@ -164,6 +203,12 @@ class FileListView(QTreeView):
 
     def refresh(self):
         """Refresh the file listing"""
+        # Save current column widths before clearing model
+        header = self.header()
+        self.temp_saved_widths = []
+        for i in range(header.count()):
+            self.temp_saved_widths.append(header.sectionSize(i))
+
         self.source_model.clear()
         self.source_model.setHorizontalHeaderLabels(["Name", "Size", "Modified"])
 
@@ -214,6 +259,15 @@ class FileListView(QTreeView):
 
         # Select first item if no item is currently selected
         self.select_first_item_if_none_selected()
+
+        # Restore column widths directly from saved widths or settings
+        if hasattr(self, 'temp_saved_widths') and self.temp_saved_widths:
+            header = self.header()
+            for i, width in enumerate(self.temp_saved_widths):
+                if i < header.count():
+                    header.resizeSection(i, width)
+        else:
+            self.restore_column_widths()
 
         # Ensure file list has focus for keyboard navigation
         self.setFocus()
@@ -339,7 +393,7 @@ class FileListView(QTreeView):
                     current_folder_name = os.path.basename(self.current_path)
                     # Emit both parent path and folder name to select
                     self.parent_navigation_requested.emit(parent, current_folder_name)
-        elif event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, 
+        elif event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp,
                            Qt.Key.Key_PageDown, Qt.Key.Key_Home, Qt.Key.Key_End]:
             # Handle navigation keys with proper scrolling
             self._handle_navigation_key(event)
@@ -351,27 +405,27 @@ class FileListView(QTreeView):
         """Handle navigation keys with proper scrolling"""
         current_index = self.currentIndex()
         model = self.model()
-        
+
         if not model or model.rowCount() == 0:
             return
-            
+
         # Store the current selection
         old_index = current_index
-        
+
         # Calculate new index based on key pressed
         new_index = None
-        
+
         if event.key() == Qt.Key.Key_Up:
             if current_index.isValid() and current_index.row() > 0:
                 new_index = model.index(current_index.row() - 1, 0)
-        
+
         elif event.key() == Qt.Key.Key_Down:
             if current_index.isValid() and current_index.row() < model.rowCount() - 1:
                 new_index = model.index(current_index.row() + 1, 0)
             elif not current_index.isValid():
                 # If no selection, select first item
                 new_index = model.index(0, 0)
-        
+
         elif event.key() == Qt.Key.Key_PageUp:
             # Move up by the number of visible rows
             visible_rows = self._get_visible_row_count()
@@ -380,7 +434,7 @@ class FileListView(QTreeView):
                 new_index = model.index(new_row, 0)
             else:
                 new_index = model.index(0, 0)
-        
+
         elif event.key() == Qt.Key.Key_PageDown:
             # Move down by the number of visible rows
             visible_rows = self._get_visible_row_count()
@@ -389,35 +443,35 @@ class FileListView(QTreeView):
                 new_index = model.index(new_row, 0)
             else:
                 new_index = model.index(0, 0)
-        
+
         elif event.key() == Qt.Key.Key_Home:
             # Move to first item
             new_index = model.index(0, 0)
-        
+
         elif event.key() == Qt.Key.Key_End:
             # Move to last item
             new_index = model.index(model.rowCount() - 1, 0)
-        
+
         # Apply the new selection and ensure it's visible
         if new_index and new_index.isValid():
             self.setCurrentIndex(new_index)
             self.scrollTo(new_index, QAbstractItemView.ScrollHint.EnsureVisible)
-    
+
     def _get_visible_row_count(self):
         """Calculate the number of rows that are currently visible in the view"""
         if not self.model() or self.model().rowCount() == 0:
             return 1
-            
+
         # Get the height of the viewport
         viewport_height = self.viewport().height()
-        
+
         # Get the height of a single row (use first row as reference)
         first_index = self.model().index(0, 0)
         row_height = self.rowHeight(first_index)
-        
+
         if row_height <= 0:
             return 1
-            
+
         # Calculate visible rows (subtract 1 to be conservative)
         visible_rows = max(1, (viewport_height // row_height) - 1)
         return visible_rows

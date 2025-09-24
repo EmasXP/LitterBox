@@ -1,6 +1,6 @@
 # HIGH
 
-* Can you implement this feature? Remember column sizes of the file list when navigating between folders, and also remember it the application is started the next time
+_Such empty_
 
 # MEDIUM
 

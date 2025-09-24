@@ -2,7 +2,9 @@
 
 An opinionated Linux file manager built with Python3 and PyQt6.
 
-_The entire code base is entirely written by AI_. This project is an experiment on how far one can go with [vibe coding](https://en.wikipedia.org/wiki/Vibe_coding), and also for me to better learn prompt engineering. Many of the commit messages are going to be AI generated too. To be clear, this is a personal testing ground for me, but I do plan to use the application in the end too.
+_The entire codebase is written entirely by AI._ This project is an experiment to see how far one can go with [vibe coding](https://en.wikipedia.org/wiki/Vibe_coding), and also a way for me to improve my prompt engineering skills. Many of the commit messages will be AI-generated as well. To be clear, this is primarily a personal testing ground, but I do intend to use the application in the end.
+
+I have an ambivalent relationship with vibe coding, but I realize I can’t stay set in my ways or cling to the past. If this is the future, I’d better adapt to it.
 
 In fact, the remainder of this README is written by AI too:
 
