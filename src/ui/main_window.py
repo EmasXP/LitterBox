@@ -422,6 +422,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = Settings()
+        
+        # Track recently used tab order (most recent first) for Ctrl+Tab switching
+        self.recent_tab_order = []
 
         self.setup_ui()
         self.setup_shortcuts()
@@ -509,6 +512,10 @@ class MainWindow(QMainWindow):
         ctrl_page_down = QShortcut(QKeySequence("Ctrl+PgDown"), self)
         ctrl_page_down.activated.connect(self.switch_to_right_tab)
 
+        # Ctrl+Tab: Switch tabs by recently used order
+        ctrl_tab = QShortcut(QKeySequence("Ctrl+Tab"), self)
+        ctrl_tab.activated.connect(self.switch_to_recent_tab)
+
     def add_new_tab(self, path=None):
         """Add a new tab"""
         # If no path provided, use current tab's path
@@ -543,6 +550,9 @@ class MainWindow(QMainWindow):
     def close_tab(self, index):
         """Close a tab"""
         if self.tab_widget.count() > 1:
+            # Update recent tab order before closing
+            self.update_recent_tab_order_on_close(index)
+            
             self.tab_widget.removeTab(index)
             self.update_tab_visibility()
         # Don't close the last tab
@@ -569,6 +579,9 @@ class MainWindow(QMainWindow):
     def on_tab_changed(self, index):
         """Handle tab change - update toolbar path navigator"""
         if index >= 0:
+            # Update recently used tab order
+            self.update_recent_tab_order(index)
+            
             tab = self.tab_widget.widget(index)
             if tab and hasattr(tab, 'current_path'):
                 self.toolbar_path_navigator.set_path(tab.current_path)
@@ -632,6 +645,43 @@ class MainWindow(QMainWindow):
         elif self.tab_widget.count() > 1:
             # Wrap around to the first tab
             self.tab_widget.setCurrentIndex(0)
+
+    def switch_to_recent_tab(self):
+        """Switch to the most recently used tab (Ctrl+Tab behavior)"""
+        if len(self.recent_tab_order) < 2:
+            return  # Need at least 2 tabs to switch
+        
+        # Get the most recent tab that isn't the current one
+        current_index = self.tab_widget.currentIndex()
+        for tab_index in self.recent_tab_order:
+            if tab_index != current_index and tab_index < self.tab_widget.count():
+                self.tab_widget.setCurrentIndex(tab_index)
+                return
+
+    def update_recent_tab_order(self, index):
+        """Update the recently used tab order"""
+        # Remove the index if it's already in the list
+        if index in self.recent_tab_order:
+            self.recent_tab_order.remove(index)
+        
+        # Add the index at the beginning (most recent)
+        self.recent_tab_order.insert(0, index)
+        
+        # Keep only the last few tabs in history (prevent unlimited growth)
+        max_history = 10
+        self.recent_tab_order = self.recent_tab_order[:max_history]
+
+    def update_recent_tab_order_on_close(self, closed_index):
+        """Update recent tab order when a tab is closed"""
+        # Remove the closed tab from the order
+        if closed_index in self.recent_tab_order:
+            self.recent_tab_order.remove(closed_index)
+        
+        # Adjust indices for tabs that come after the closed tab
+        # (their indices will shift down by 1)
+        for i in range(len(self.recent_tab_order)):
+            if self.recent_tab_order[i] > closed_index:
+                self.recent_tab_order[i] -= 1
 
     def keyPressEvent(self, event):
         """Handle global key events"""

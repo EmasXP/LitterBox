@@ -20,7 +20,6 @@ _Such empty_
 # LOW
 
 * The icons are only Folder or File, does not show file type.
-* Application and Dock icon
 * Show "[folder name] [long dash] LitterBox" in the Application title bar
 * Icons instead of buttons for "New folder" and "New file"
 * Padding between the path bar and the separator
