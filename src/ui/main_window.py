@@ -1,5 +1,5 @@
 """
-Main window for the file manager
+Main window for the LitterBox file manager
 """
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QToolBar, QPushButton, QTabWidget, QLineEdit,
@@ -80,7 +80,7 @@ class FilterBar(QFrame):
             super().keyPressEvent(event)
 
 class FileTab(QWidget):
-    """Individual file manager tab"""
+    """Individual LitterBox tab"""
 
     path_changed = pyqtSignal(str)  # Emitted when current path changes
 
@@ -429,7 +429,7 @@ class MainWindow(QMainWindow):
 
     def setup_ui(self):
         """Setup the main window UI"""
-        self.setWindowTitle("File Manager")
+        self.setWindowTitle("LitterBox")
         self.setMinimumSize(800, 600)
 
         # Central widget

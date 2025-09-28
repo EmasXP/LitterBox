@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch script for the File Manager
+# Launch script for LitterBox
 
 cd "$(dirname "$0")"
 

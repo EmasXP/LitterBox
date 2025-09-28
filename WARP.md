@@ -29,7 +29,7 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 - **ApplicationManager** (`application_manager.py`): System application detection and file associations
 
 #### Utilities (`src/utils/`)
-- **Settings** (`settings.py`): Persistent configuration management (`~/.config/filemanager/settings.json`)
+- **Settings** (`settings.py`): Persistent configuration management (`~/.config/litterbox/settings.json`)
 
 ### Key Architectural Patterns
 
@@ -45,7 +45,7 @@ The application heavily uses PyQt6's signal/slot system for loose coupling:
 - **View**: `FileListView` (QTreeView) displays the filtered/sorted data
 
 #### Settings Persistence
-All user preferences (window size, sort order, column widths) are automatically saved to `~/.config/filemanager/settings.json` using the Settings utility class.
+All user preferences (window size, sort order, column widths) are automatically saved to `~/.config/litterbox/settings.json` using the Settings utility class.
 
 ## Common Development Commands
 
@@ -108,7 +108,7 @@ python test_ui_changes.py         # UI behavior tests
 ### Settings Management
 - Use `Settings` class for all persistent configuration
 - Window geometry and sort preferences are automatically saved
-- Settings are stored in standard Linux config location (`~/.config/filemanager/`)
+- Settings are stored in standard Linux config location (`~/.config/litterbox/`)
 
 ### Error Handling
 - Show user-friendly error dialogs with `QMessageBox.warning()`
@@ -131,7 +131,7 @@ python test_ui_changes.py         # UI behavior tests
 ## Configuration
 
 ### User Settings Location
-- Settings file: `~/.config/filemanager/settings.json`
+- Settings file: `~/.config/litterbox/settings.json`
 - Automatically created on first run
 - Contains window geometry, sort preferences, column widths
 

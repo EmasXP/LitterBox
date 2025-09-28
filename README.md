@@ -96,7 +96,7 @@ python main.py
 
 ## Configuration
 
-Settings are automatically saved to `~/.config/filemanager/settings.json` and include:
+Settings are automatically saved to `~/.config/litterbox/settings.json` and include:
 - Window size and position
 - Current sort column and order
 - Hidden file visibility preferences

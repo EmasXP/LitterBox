@@ -1,5 +1,5 @@
 """
-Settings management for the file manager
+Settings management for LitterBox
 """
 import json
 import os
@@ -13,7 +13,7 @@ class Settings:
     _cache_file_mtime = None
 
     def __init__(self):
-        self.config_dir = Path.home() / ".config" / "filemanager"
+        self.config_dir = Path.home() / ".config" / "litterbox"
         self.config_file = self.config_dir / "settings.json"
         self.settings = self.load_settings()
 

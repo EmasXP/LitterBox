@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=LitterBox
+Comment=Opinionated file manager built with PyQt6
+Exec=/absolute/path/to/LitterBox/run.sh
+Icon=folder
+Terminal=false
+Categories=System;FileManager;
+StartupNotify=true
+StartupWMClass=LitterBox

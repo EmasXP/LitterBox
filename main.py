@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-File Manager - Main Entry Point
+LitterBox - Main Entry Point
 """
 import sys
 import os
@@ -9,13 +9,19 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QGuiApplication
 from ui.main_window import MainWindow
 
 def main():
+    # Set the application class name before creating QApplication
+    # This is crucial for Wayland window identification
+    QGuiApplication.setDesktopFileName("litterbox")
+    
     app = QApplication(sys.argv)
-    app.setApplicationName("File Manager")
+    app.setApplicationName("LitterBox")
     app.setApplicationVersion("1.0")
     app.setOrganizationName("LitterBox")
+    app.setDesktopFileName("litterbox")  # This helps Wayland match the window to the .desktop file
 
     window = MainWindow()
     window.show()
