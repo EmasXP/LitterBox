@@ -12,11 +12,10 @@ _Such empty_
   - On Rename: Suggest a new name, for example "file (2).txt"
   - On Overwrite: Give the option to "Apply for all"
   - Show progress bar
-  - Several simultanious Paste actions can happen at the "same time", meaning that files can already be in transfer when another Paste happens. Then another progress bar shall appear.
+  - Several simultaneous Paste actions can happen at the "same time", meaning that files can already be in transfer when another Paste happens. Then another progress bar shall appear.
   - Cancel running file copy (per progress bar)
   - Each progress bar shall contain some information about what's being copied
   - Update the view as files are being copied over, so the new files appear (and their file sizes are being increased)
-* Switch tabs by Ctrl + PageUp/PageDown
 
 # LOW
 

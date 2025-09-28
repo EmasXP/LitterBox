@@ -16,7 +16,7 @@ def main():
     # Set the application class name before creating QApplication
     # This is crucial for Wayland window identification
     QGuiApplication.setDesktopFileName("litterbox")
-    
+
     app = QApplication(sys.argv)
     app.setApplicationName("LitterBox")
     app.setApplicationVersion("1.0")

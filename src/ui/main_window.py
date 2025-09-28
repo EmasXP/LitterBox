@@ -158,47 +158,47 @@ class FileTab(QWidget):
         """Handle activation of executable files with smart detection"""
         filename = os.path.basename(path)
         executable_type = FileOperations.get_executable_type(path)
-        
+
         if executable_type == 'gui':
             # GUI applications - run directly without asking
             success, error = FileOperations.run_executable(path)
             if not success:
                 QMessageBox.warning(self, "Run Failed", f"Could not run executable:\n{error}")
             return
-        
+
         # For console applications and scripts, show dialog with options
         type_description = {
             'console': 'console application',
             'script': 'script',
             None: 'executable file'
         }.get(executable_type, 'executable file')
-        
+
         dialog = QMessageBox(self)
         dialog.setWindowTitle("Executable File")
         dialog.setText(f"'{filename}' is a {type_description}.")
         dialog.setInformativeText("How would you like to run it?")
-        
+
         # Add buttons based on executable type
         run_terminal_button = dialog.addButton("Run in Terminal", QMessageBox.ButtonRole.ActionRole)
         run_direct_button = dialog.addButton("Run Directly", QMessageBox.ButtonRole.ActionRole)
-        
+
         # Only add edit button if the file appears to be a text file
         edit_button = None
         if FileOperations.is_text_file(path):
             edit_button = dialog.addButton("Edit", QMessageBox.ButtonRole.ActionRole)
-        
+
         cancel_button = dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        
+
         # Set default button based on type
         if executable_type == 'script':
             dialog.setDefaultButton(run_terminal_button)
         else:
             dialog.setDefaultButton(run_direct_button)
-        
+
         # Show dialog and handle response
         dialog.exec()
         clicked_button = dialog.clickedButton()
-        
+
         if clicked_button == run_terminal_button:
             success, error = FileOperations.run_executable(path, force_terminal=True)
             if not success:
@@ -501,6 +501,14 @@ class MainWindow(QMainWindow):
         ctrl_enter = QShortcut(QKeySequence("Ctrl+Return"), self)
         ctrl_enter.activated.connect(self.show_current_properties)
 
+        # Ctrl+PageUp: Switch to left tab
+        ctrl_page_up = QShortcut(QKeySequence("Ctrl+PgUp"), self)
+        ctrl_page_up.activated.connect(self.switch_to_left_tab)
+
+        # Ctrl+PageDown: Switch to right tab
+        ctrl_page_down = QShortcut(QKeySequence("Ctrl+PgDown"), self)
+        ctrl_page_down.activated.connect(self.switch_to_right_tab)
+
     def add_new_tab(self, path=None):
         """Add a new tab"""
         # If no path provided, use current tab's path
@@ -508,7 +516,7 @@ class MainWindow(QMainWindow):
             current_tab = self.get_current_tab()
             if current_tab:
                 path = current_tab.current_path
-        
+
         tab = FileTab(path)
 
         # Tab title based on path
@@ -606,6 +614,24 @@ class MainWindow(QMainWindow):
             selected_items = current_tab.file_list.get_selected_items()
             if selected_items:
                 current_tab.show_properties(selected_items[0])
+
+    def switch_to_left_tab(self):
+        """Switch to the tab on the left (previous tab)"""
+        current_index = self.tab_widget.currentIndex()
+        if current_index > 0:
+            self.tab_widget.setCurrentIndex(current_index - 1)
+        elif self.tab_widget.count() > 1:
+            # Wrap around to the last tab
+            self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
+
+    def switch_to_right_tab(self):
+        """Switch to the tab on the right (next tab)"""
+        current_index = self.tab_widget.currentIndex()
+        if current_index < self.tab_widget.count() - 1:
+            self.tab_widget.setCurrentIndex(current_index + 1)
+        elif self.tab_widget.count() > 1:
+            # Wrap around to the first tab
+            self.tab_widget.setCurrentIndex(0)
 
     def keyPressEvent(self, event):
         """Handle global key events"""

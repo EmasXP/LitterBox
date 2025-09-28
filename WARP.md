@@ -100,7 +100,7 @@ python test_ui_changes.py         # UI behavior tests
 - Support both `gio trash` and `trash-cli` for Linux desktop compatibility
 
 ### UI Components
-- Use PyQt6 signal/slot pattern for component communication  
+- Use PyQt6 signal/slot pattern for component communication
 - Filter bar appears automatically on typing and supports arrow key navigation
 - Path navigation supports both button clicks and Ctrl+L text edit mode
 - Context menus provide standard file operations (Open, Rename, Delete, Properties)
@@ -154,7 +154,7 @@ When executable files are activated, the application shows a dialog offering to 
 ### Filter System
 The type-to-filter system uses a regex-based proxy model that filters on filename only (not full path). The filter bar appears at the bottom and supports keyboard navigation while active.
 
-### Tab Management  
+### Tab Management
 New tabs open in the same directory as the current tab. The tab bar is hidden when only one tab is open. Each tab maintains its own navigation history and filter state.
 
 ### Custom Sorting
