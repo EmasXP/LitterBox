@@ -106,8 +106,20 @@ class FileListView(QTreeView):
         # Load sort preferences from settings
         from utils.settings import Settings
         self.settings = Settings()
-        self.sort_column = self.settings.get("sort_column", 0)
-        self.sort_order = Qt.SortOrder(self.settings.get("sort_order", 0))
+
+        # Get sort column - ensure it's an integer
+        sort_col = self.settings.get("sort_column", 0)
+        if isinstance(sort_col, (int, float)):
+            self.sort_column = int(sort_col)
+        else:
+            self.sort_column = 0
+
+        # Get sort order - ensure it's a valid Qt.SortOrder
+        sort_order = self.settings.get("sort_order", 0)
+        if isinstance(sort_order, (int, float)):
+            self.sort_order = Qt.SortOrder(int(sort_order))
+        else:
+            self.sort_order = Qt.SortOrder.AscendingOrder
 
         # Create model and proxy
         self.source_model = QStandardItemModel()
@@ -123,6 +135,9 @@ class FileListView(QTreeView):
 
         # Install event filter to catch key events before Qt's built-in handling
         self.installEventFilter(self)
+
+        # Apply initial sort indicator after everything is set up
+        self.update_sort_indicator()
 
     def setup_ui(self):
         """Initialize the UI"""
@@ -257,6 +272,9 @@ class FileListView(QTreeView):
         # Apply current sorting through proxy model
         self.proxy_model.sort(self.sort_column, self.sort_order)
 
+        # Update sort indicator to show current sort state
+        self.update_sort_indicator()
+
         # Select first item if no item is currently selected
         self.select_first_item_if_none_selected()
 
@@ -280,6 +298,12 @@ class FileListView(QTreeView):
         # Save sort preferences
         self.settings.set("sort_column", logical_index)
         self.settings.set("sort_order", order.value)
+
+    def update_sort_indicator(self):
+        """Update the header sort indicator to match current sort state"""
+        header = self.header()
+        if header:
+            header.setSortIndicator(self.sort_column, self.sort_order)
 
     def on_item_double_clicked(self, index):
         """Handle item double click"""

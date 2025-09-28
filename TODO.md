@@ -8,14 +8,15 @@ _Such empty_
 * The Properties shortcut shall be Alt+Enter, not Ctrl+Enter
 * Ctrl+Enter to trigger "Open with..."
 * I want to implement Copy, Cut and Paste functionality:
-	- When pasting, and target file already exist, the user shall be given three options: Overwrite, Rename or Cancel
-	- On Rename: Suggest a new name, for example "file (2).txt"
-	- On Overwrite: Give the option to "Apply for all"
-	- Show progress bar
-	- Several simultanious Paste actions can happen at the "same time", meaning that files can already be in transfer when another Paste happens. Then another progress bar shall appear.
-	- Cancel running file copy (per progress bar)
-	- Each progress bar shall contain some information about what's being copied
-	- Update the view as files are being copied over, so the new files appear (and their file sizes are being increased)
+  - When pasting, and target file already exist, the user shall be given three options: Overwrite, Rename or Cancel
+  - On Rename: Suggest a new name, for example "file (2).txt"
+  - On Overwrite: Give the option to "Apply for all"
+  - Show progress bar
+  - Several simultanious Paste actions can happen at the "same time", meaning that files can already be in transfer when another Paste happens. Then another progress bar shall appear.
+  - Cancel running file copy (per progress bar)
+  - Each progress bar shall contain some information about what's being copied
+  - Update the view as files are being copied over, so the new files appear (and their file sizes are being increased)
+* Switch tabs by Ctrl + PageUp/PageDown
 
 # LOW
 
@@ -30,3 +31,4 @@ _Such empty_
 * Filter in "Open with..." dialog
 * "Open with..." "Other application"
 * When renaming file: it would be nice if the file row was still selected after rename
+* The "raw" path bar (the text input one) could be wider
