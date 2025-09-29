@@ -4,7 +4,8 @@ File list view widget - displays files and folders in a detailed list
 from PyQt6.QtWidgets import (QTreeWidget, QTreeWidgetItem, QHeaderView,
                              QAbstractItemView, QMenu, QTreeView)
 from PyQt6.QtCore import pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent, QTimer
-from PyQt6.QtGui import QIcon, QDrag, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QIcon, QDrag, QStandardItemModel, QStandardItem, QKeyEvent
+from PyQt6.QtWidgets import QFileIconProvider
 from core.file_operations import FileOperations
 from datetime import datetime
 import os
@@ -156,16 +157,20 @@ class FileListView(QTreeView):
 
         # Configure header
         header = self.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        if header:  # Guard for static analysis
+            # All interactive so we can capture exact widths; we emulate stretch manually.
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
 
         # Set minimum column widths
-        header.setMinimumSectionSize(50)
+        if header:
+            header.setMinimumSectionSize(50)
 
         # Enable sorting and set default
-        header.setSortIndicatorShown(True)
-        header.sortIndicatorChanged.connect(self.on_sort_changed)
+        if header:
+            header.setSortIndicatorShown(True)
+            header.sortIndicatorChanged.connect(self.on_sort_changed)
 
         # Focus policy to receive key events
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -177,39 +182,78 @@ class FileListView(QTreeView):
         """Set up signal connections"""
         self.doubleClicked.connect(self.on_item_double_clicked)
         self.customContextMenuRequested.connect(self.on_context_menu_requested)
-
         # Connect to header section resize signal to save column widths
         header = self.header()
-        header.sectionResized.connect(self.save_column_widths)
+        # (legacy direct save connection removed; now debounced in _on_section_resized)
+        if header:
+            header.sectionResized.connect(self._on_section_resized)
+        # Internal flags/state for managing programmatic restores
+        self._restoring_columns = False
+        self._last_saved_all = None  # (name,size,modified)
+        self._pending_fit = False
+        self._min_widths = [120, 70, 140]  # Minimums for Name, Size, Modified
+        self._fit_debounce_ms = 60
+        self._save_debounce_ms = 120
+        self._pending_save = False
+        self._pending_resize_fit = False
+        self._icon_provider = QFileIconProvider()
+
+    # already connected above if header available
 
     def restore_column_widths(self):
-        """Restore column widths from settings"""
-        default_widths = [200, 100, 150]  # Name, Size, Modified
-        column_widths = self.settings.get_column_widths(default_widths)
+        """Restore all three column widths; fallback to defaults with backward compatibility.
 
+        If only 2 widths stored, prepend default for Name; if malformed, use defaults.
+        """
+        defaults = [200, 100, 150]
+        stored = self.settings.get_column_widths(defaults)
+        if len(stored) == 2:
+            stored = [defaults[0]] + stored
+        if len(stored) < 3:
+            stored = defaults
         header = self.header()
-        # Try to restore using QTimer to ensure the view is fully initialized
-        QTimer.singleShot(0, lambda: self._apply_column_widths(column_widths))
+        QTimer.singleShot(0, lambda w=stored: self._apply_all_widths(w))
 
-    def _apply_column_widths(self, widths):
-        """Apply column widths after a short delay"""
+    # ---------------- Persistence & Save Logic ----------------
+    def _on_section_resized(self, *_):
+        """Debounce user-initiated resize operations before saving."""
+        if getattr(self, '_restoring_columns', False):
+            return
+        if not self._pending_save:
+            self._pending_save = True
+            QTimer.singleShot(self._save_debounce_ms, self._commit_user_widths)
+
+    def _commit_user_widths(self):
+        self._pending_save = False
+        self.save_column_widths()
+
+    def _apply_all_widths(self, widths):
         header = self.header()
-        for i, width in enumerate(widths):
-            if i < header.count():
-                header.resizeSection(i, width)
-                actual_width = header.sectionSize(i)
-                if actual_width != width:
-                    # Try again with a small delay if it didn't take
-                    QTimer.singleShot(10, lambda i=i, w=width: header.resizeSection(i, w))
+        if not header:
+            return
+        self._restoring_columns = True
+        try:
+            for i, w in enumerate(widths):
+                if i < header.count() and w > 0:
+                    header.resizeSection(i, w)
+        finally:
+            QTimer.singleShot(30, lambda: setattr(self, '_restoring_columns', False))
+        # Schedule a fit pass after layout settles
+        QTimer.singleShot(45, self._fit_name_column)
 
     def save_column_widths(self):
-        """Save current column widths to settings"""
+        """Persist all columns (Name, Size, Modified) when user finishes resizing."""
+        if getattr(self, '_restoring_columns', False):
+            return
         header = self.header()
-        widths = []
-        for i in range(header.count()):
-            widths.append(header.sectionSize(i))
-
-        self.settings.set_column_widths(widths)
+        if not header:
+            return
+        widths = [header.sectionSize(i) for i in range(header.count())]
+        if len(widths) >= 3 and all(w > 4 for w in widths):
+            tup = tuple(widths[:3])
+            if self._last_saved_all != tup:
+                self.settings.set_column_widths(widths[:3])
+                self._last_saved_all = tup
 
     def set_path(self, path):
         """Set the current directory path and refresh"""
@@ -218,77 +262,134 @@ class FileListView(QTreeView):
 
     def refresh(self):
         """Refresh the file listing"""
-        # Save current column widths before clearing model
+        had_focus = self.hasFocus()
+        # Save current widths before clearing (all three) for quick intra-refresh restore
         header = self.header()
-        self.temp_saved_widths = []
-        for i in range(header.count()):
-            self.temp_saved_widths.append(header.sectionSize(i))
+        self._temp_all = None
+        if header and header.count() >= 3:
+            self._temp_all = [header.sectionSize(i) for i in range(3)]
 
         self.source_model.clear()
         self.source_model.setHorizontalHeaderLabels(["Name", "Size", "Modified"])
 
-        if not self.current_path:
+        # Populate model
+        if not self.current_path or not os.path.isdir(self.current_path):
             return
 
-        # Get directory contents
-        entries = FileOperations.list_directory(self.current_path, show_hidden=True)
+        try:
+            entries = FileOperations.list_directory(self.current_path)
+        except Exception:
+            entries = []
 
         for entry in entries:
-            # Create row items
-            name_item = QStandardItem()
-            size_item = QStandardItem()
-            modified_item = QStandardItem()
+            name_item = QStandardItem(entry['name'])
+            name_item.setEditable(False)
+            name_item.setData(entry['path'], Qt.ItemDataRole.UserRole)  # store path
+            name_item.setData(entry['is_dir'], Qt.ItemDataRole.UserRole + 1)  # directory flag
+            # Assign icon (folder/file)
+            try:
+                if entry['is_dir']:
+                    icon = self._icon_provider.icon(QFileIconProvider.IconType.Folder)
+                else:
+                    icon = self._icon_provider.icon(QFileIconProvider.IconType.File)
+                if icon and not icon.isNull():
+                    name_item.setIcon(icon)
+            except Exception:
+                pass
 
-            # Name column (with icon placeholder)
-            name = entry['name']
-            if entry['is_dir']:
-                name = f"📁 {name}"
-            else:
-                name = f"📄 {name}"
-            name_item.setText(name)
+            size_item = QStandardItem("" if entry['is_dir'] else FileOperations.format_size(entry['size']))
+            size_item.setEditable(False)
 
-            # Store full path as data
-            name_item.setData(entry['path'], Qt.ItemDataRole.UserRole)
+            modified_item = QStandardItem("")
+            modified_item.setEditable(False)
+            if entry.get('modified') and isinstance(entry['modified'], datetime):
+                modified_str = entry['modified'].strftime("%Y-%m-%d %H:%M")
+                modified_item.setText(modified_str)
+                modified_item.setData(entry['modified'], Qt.ItemDataRole.UserRole)
 
-            # Store whether it's a directory
-            name_item.setData(entry['is_dir'], Qt.ItemDataRole.UserRole + 1)
-
-            # Size column
-            if entry['is_dir']:
-                size_item.setText("—")
-            else:
-                size_item.setText(FileOperations.format_size(entry['size']))
-
-            # Modified column
-            modified_str = entry['modified'].strftime("%Y-%m-%d %H:%M")
-            modified_item.setText(modified_str)
-
-            # Store datetime for proper sorting
-            modified_item.setData(entry['modified'], Qt.ItemDataRole.UserRole)
-
-            # Add row to model
             self.source_model.appendRow([name_item, size_item, modified_item])
 
-        # Apply current sorting through proxy model
+        # Sort
         self.proxy_model.sort(self.sort_column, self.sort_order)
-
-        # Update sort indicator to show current sort state
         self.update_sort_indicator()
-
-        # Select first item if no item is currently selected
         self.select_first_item_if_none_selected()
 
-        # Restore column widths directly from saved widths or settings
-        if hasattr(self, 'temp_saved_widths') and self.temp_saved_widths:
-            header = self.header()
-            for i, width in enumerate(self.temp_saved_widths):
-                if i < header.count():
-                    header.resizeSection(i, width)
+        # Restore widths or use settings
+        if header and self._temp_all:
+            self._apply_all_widths(self._temp_all)
         else:
             self.restore_column_widths()
+        QTimer.singleShot(60, self._fit_columns)
+        if had_focus:
+            # Restore focus only if we owned it before refresh
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
 
-        # Ensure file list has focus for keyboard navigation
-        self.setFocus()
+    # ---------------- Deterministic Fit Algorithm ----------------
+    def _fit_columns(self):
+        """Ensure columns fit viewport without horizontal scrollbar by shrinking in priority.
+
+        Priority (shrink first): Modified -> Size -> Name. Expansion goes to Name.
+        Does not persist changes. Honors minimum widths defined in self._min_widths.
+        """
+        if getattr(self, '_restoring_columns', False):
+            return
+        header = self.header()
+        if not header or header.count() < 3:
+            return
+        vp = self.viewport()
+        vp_w = vp.width() if vp else 0
+        widths = [header.sectionSize(i) for i in range(3)]
+        mins = self._min_widths
+        total = sum(widths)
+        if vp_w <= 0:
+            return
+        # Overflow handling
+        if total > vp_w:
+            overflow = total - vp_w
+            order = [2, 1, 0]  # Modified, Size, Name
+            idx = 0
+            self._restoring_columns = True
+            try:
+                while overflow > 0 and idx < len(order):
+                    col = order[idx]
+                    current = widths[col]
+                    floor = mins[col]
+                    reducible = max(0, current - floor)
+                    if reducible > 0:
+                        take = min(reducible, overflow)
+                        if take > 0:
+                            new_w = current - take
+                            header.resizeSection(col, new_w)
+                            widths[col] = new_w
+                            overflow -= take
+                    if reducible <= 0:
+                        idx += 1
+            finally:
+                QTimer.singleShot(20, lambda: setattr(self, '_restoring_columns', False))
+        else:
+            # Slack distribution -> give to Name column only
+            slack = vp_w - total
+            if slack > 6:
+                self._restoring_columns = True
+                try:
+                    header.resizeSection(0, widths[0] + slack)
+                finally:
+                    QTimer.singleShot(20, lambda: setattr(self, '_restoring_columns', False))
+
+    # Backward compatibility method name retained (if other code calls it)
+    def _fit_name_column(self):  # pragma: no cover - alias
+        self._fit_columns()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if not self._pending_resize_fit:
+            self._pending_resize_fit = True
+            QTimer.singleShot(self._fit_debounce_ms, self._post_resize_fit)
+
+    def _post_resize_fit(self):
+        self._pending_resize_fit = False
+        self._fit_columns()
+        # Removed forced focus to preserve user typing in filter entry
 
     def on_sort_changed(self, logical_index, order):
         """Handle sort indicator change"""
@@ -341,12 +442,13 @@ class FileListView(QTreeView):
     def get_selected_items(self):
         """Get list of selected item paths"""
         selected = []
-        for index in self.selectionModel().selectedRows():
+        selection_model = self.selectionModel()
+        if not selection_model:
+            return selected
+        for index in selection_model.selectedRows():
             if index.isValid():
-                # Map from proxy to source model
                 source_index = self.proxy_model.mapToSource(index)
                 if source_index.isValid():
-                    # Get the item from the first column (name column)
                     name_item = self.source_model.item(source_index.row(), 0)
                     if name_item:
                         path = name_item.data(Qt.ItemDataRole.UserRole)
@@ -375,18 +477,17 @@ class FileListView(QTreeView):
             if first_index.isValid():
                 self.setCurrentIndex(first_index)
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, object, event):  # parameter name 'object' matches Qt signature
         """Event filter to catch key events before Qt's default processing"""
-        if obj == self and event.type() == QEvent.Type.KeyPress:
-            # Check for printable characters FIRST to prevent Qt's default handling
-            if event.text() and event.text().isprintable() and not event.modifiers():
-                # Printable character: request filter
-                self.filter_requested.emit(event.text())
-                # Return True to consume the event
-                return True
+        if object == self and event.type() == QEvent.Type.KeyPress:
+            # Cast safely to QKeyEvent for access to text()/modifiers()
+            if isinstance(event, QKeyEvent):
+                if event.text() and event.text().isprintable() and not event.modifiers():
+                    self.filter_requested.emit(event.text())
+                    return True
 
         # Let the parent handle all other events
-        return super().eventFilter(obj, event)
+        return super().eventFilter(object, event)
 
     def keyPressEvent(self, event):
         """Handle key press events for navigation and actions"""
@@ -483,14 +584,15 @@ class FileListView(QTreeView):
 
     def _get_visible_row_count(self):
         """Calculate the number of rows that are currently visible in the view"""
-        if not self.model() or self.model().rowCount() == 0:
+        model = self.model()
+        if not model or model.rowCount() == 0:
             return 1
 
         # Get the height of the viewport
         viewport_height = self.viewport().height()
 
         # Get the height of a single row (use first row as reference)
-        first_index = self.model().index(0, 0)
+        first_index = model.index(0, 0)
         row_height = self.rowHeight(first_index)
 
         if row_height <= 0:

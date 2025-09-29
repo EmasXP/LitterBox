@@ -422,7 +422,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = Settings()
-        
+
         # Track recently used tab order (most recent first) for Ctrl+Tab switching
         self.recent_tab_order = []
 
@@ -552,7 +552,7 @@ class MainWindow(QMainWindow):
         if self.tab_widget.count() > 1:
             # Update recent tab order before closing
             self.update_recent_tab_order_on_close(index)
-            
+
             self.tab_widget.removeTab(index)
             self.update_tab_visibility()
         # Don't close the last tab
@@ -581,7 +581,7 @@ class MainWindow(QMainWindow):
         if index >= 0:
             # Update recently used tab order
             self.update_recent_tab_order(index)
-            
+
             tab = self.tab_widget.widget(index)
             if tab and hasattr(tab, 'current_path'):
                 self.toolbar_path_navigator.set_path(tab.current_path)
@@ -650,7 +650,7 @@ class MainWindow(QMainWindow):
         """Switch to the most recently used tab (Ctrl+Tab behavior)"""
         if len(self.recent_tab_order) < 2:
             return  # Need at least 2 tabs to switch
-        
+
         # Get the most recent tab that isn't the current one
         current_index = self.tab_widget.currentIndex()
         for tab_index in self.recent_tab_order:
@@ -663,10 +663,10 @@ class MainWindow(QMainWindow):
         # Remove the index if it's already in the list
         if index in self.recent_tab_order:
             self.recent_tab_order.remove(index)
-        
+
         # Add the index at the beginning (most recent)
         self.recent_tab_order.insert(0, index)
-        
+
         # Keep only the last few tabs in history (prevent unlimited growth)
         max_history = 10
         self.recent_tab_order = self.recent_tab_order[:max_history]
@@ -676,7 +676,7 @@ class MainWindow(QMainWindow):
         # Remove the closed tab from the order
         if closed_index in self.recent_tab_order:
             self.recent_tab_order.remove(closed_index)
-        
+
         # Adjust indices for tabs that come after the closed tab
         # (their indices will shift down by 1)
         for i in range(len(self.recent_tab_order)):
