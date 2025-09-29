@@ -94,13 +94,15 @@ class FileTransferTask(QObject):
             for src, dest, is_dir in pairs:
                 if self._cancel.is_set():
                     raise RuntimeError('Cancelled')
+                # Resolve top-level conflict (folder or file)
                 final_dest = self._handle_conflict(src, dest)
                 if final_dest is None:
                     if self._cancel.is_set():
                         raise RuntimeError('Cancelled')
                     continue
                 if is_dir:
-                    self._copy_dir(src, final_dest)
+                    # Copy directory tree with per-entry conflict handling (except root already handled)
+                    self._copy_dir_with_conflicts(src, final_dest, is_root=True)
                 else:
                     self._copy_file(src, final_dest)
                 # For move semantics after copy (cross filesystem or rename fallback)
@@ -147,20 +149,39 @@ class FileTransferTask(QObject):
             return None
         return dest
 
-    def _copy_dir(self, src: Path, dest: Path):
+    def _copy_dir_with_conflicts(self, src: Path, dest: Path, is_root: bool = False):
+        """Recursively copy directory with per-file and per-subdir conflict prompting.
+
+        Root directory conflict is assumed already resolved by caller when is_root=True.
+        For nested directories, if destination exists, treat as a conflict (prompt unless apply_all overwrite is set).
+        """
+        if not is_root:
+            if dest.exists():
+                final_dest = self._handle_conflict(src, dest)
+                if final_dest is None:
+                    return  # skip this subtree
+                dest = final_dest
         dest.mkdir(parents=True, exist_ok=True)
-        for root, _dirs, files in os.walk(src):
+        try:
+            entries = list(src.iterdir())
+        except OSError:
+            entries = []
+        for entry in entries:
             if self._cancel.is_set():
                 raise RuntimeError('Cancelled')
-            rel = Path(root).relative_to(src)
-            target_root = dest / rel
-            target_root.mkdir(parents=True, exist_ok=True)
-            for f in files:
-                if self._cancel.is_set():
-                    raise RuntimeError('Cancelled')
-                self._copy_file(Path(root) / f, target_root / f)
+            target = dest / entry.name
+            if entry.is_dir():
+                self._copy_dir_with_conflicts(entry, target, is_root=False)
+            else:
+                self._copy_file(entry, target)
 
     def _copy_file(self, src: Path, dest: Path):
+        # Check per-file conflict (if destination exists and overwrite-all not set)
+        if dest.exists() and not self._apply_all_overwrite:
+            new_dest = self._handle_conflict(src, dest)
+            if new_dest is None:
+                return  # skip
+            dest = new_dest
         temp = dest.with_suffix(dest.suffix + '.part')
         try:
             with open(src, 'rb') as rf, open(temp, 'wb') as wf:

@@ -110,3 +110,66 @@ if __name__ == '__main__':
         print('Running', fn.__name__)
         fn()
     print('All copy/paste tests passed.')
+
+
+def test_nested_conflicts_overwrite_each():
+    """Without apply_all, each file conflict should invoke callback separately.
+
+    We emulate this by counting how many times the conflict callback is called when
+    copying a directory tree with two conflicting files into a destination that already
+    contains both files.
+    """
+    with tempfile.TemporaryDirectory() as srcd, tempfile.TemporaryDirectory() as dstd:
+        # Build source tree
+        src_root = Path(srcd)/'folder'
+        (src_root/'sub').mkdir(parents=True)
+        create_file(src_root/'a.txt', 5)
+        create_file(src_root/'sub'/'b.txt', 5)
+        # Destination already has target structure with same names
+        dest_root = Path(dstd)/'folder'
+        (dest_root/'sub').mkdir(parents=True)
+        create_file(dest_root/'a.txt', 3)
+        create_file(dest_root/'sub'/'b.txt', 3)
+
+        calls = []
+        def conflict(existing, _src):
+            calls.append(existing)
+            return ConflictDecision('overwrite', apply_all=False)
+
+        mgr = FileTransferManager()
+        task = mgr.start_transfer([str(src_root)], dstd, move=False, conflict_callback=conflict)
+        success, err = wait_task(task)
+        assert success, err
+        # Expect four conflicts: root folder, a.txt, sub folder, b.txt
+        assert len(calls) == 4, f"expected 4 conflict prompts, got {len(calls)}"
+        # Sizes should be updated
+        assert (dest_root/'a.txt').stat().st_size == 5
+        assert (dest_root/'sub'/'b.txt').stat().st_size == 5
+
+
+def test_nested_conflicts_overwrite_apply_all():
+    """With apply_all set on first conflict, subsequent file conflicts skip callback."""
+    with tempfile.TemporaryDirectory() as srcd, tempfile.TemporaryDirectory() as dstd:
+        src_root = Path(srcd)/'folder'
+        (src_root/'sub').mkdir(parents=True)
+        create_file(src_root/'a.txt', 5)
+        create_file(src_root/'sub'/'b.txt', 5)
+        dest_root = Path(dstd)/'folder'
+        (dest_root/'sub').mkdir(parents=True)
+        create_file(dest_root/'a.txt', 3)
+        create_file(dest_root/'sub'/'b.txt', 3)
+
+        calls = []
+        def conflict(existing, _src):
+            calls.append(existing)
+            # First call sets apply_all, others should not occur
+            return ConflictDecision('overwrite', apply_all=True)
+
+        mgr = FileTransferManager()
+        task = mgr.start_transfer([str(src_root)], dstd, move=False, conflict_callback=conflict)
+        success, err = wait_task(task)
+        assert success, err
+        # Only root folder conflict should be prompted
+        assert len(calls) == 1, f"expected 1 conflict prompt, got {len(calls)}"
+        assert (dest_root/'a.txt').stat().st_size == 5
+        assert (dest_root/'sub'/'b.txt').stat().st_size == 5
