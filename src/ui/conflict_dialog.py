@@ -82,7 +82,8 @@ class ConflictDialog(QDialog):
         # Buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
-        self.ok_btn = QPushButton("OK")
+        # Primary action button (label changes per tab)
+        self.ok_btn = QPushButton("Rename")  # default tab is Rename
         self.skip_btn = QPushButton("Skip")
         self.cancel_btn = QPushButton("Cancel")
         btn_row.addWidget(self.ok_btn)
@@ -98,7 +99,7 @@ class ConflictDialog(QDialog):
         self.ok_btn.clicked.connect(self._accept)
         self.skip_btn.clicked.connect(self._skip)
         self.cancel_btn.clicked.connect(self._cancel)
-        self.tabs.currentChanged.connect(lambda _: self._update_ok_state())
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         self.rename_edit.textChanged.connect(self._update_ok_state)
 
         self.resize(420, 200)
@@ -131,11 +132,18 @@ class ConflictDialog(QDialog):
     def _update_ok_state(self):
         if self._current_mode() == 'rename':
             txt = self.rename_edit.text().strip()
-            # Disable OK if empty or identical to original
             enable = bool(txt) and txt != self._original_name
-            self.ok_btn.setEnabled(enable)
         else:
-            self.ok_btn.setEnabled(True)
+            enable = True
+        self.ok_btn.setEnabled(enable)
+
+    def _on_tab_changed(self, index: int):  # noqa: ARG002 (index not used besides logic)
+        # Update button label according to selected tab
+        if self._current_mode() == 'rename':
+            self.ok_btn.setText("Rename")
+        else:
+            self.ok_btn.setText("Overwrite")
+        self._update_ok_state()
 
     def _accept(self):
         mode = self._current_mode()
