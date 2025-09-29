@@ -28,12 +28,12 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
   * `Ctrl+W` to close the current tab (or use the close button on the tab)
   * Tab row is hidden when only one tab is open
 * Properties dialog
-  - File information
-  - Permissions editing
-  - Open-with selection
-- Window and column sizes size are saved between sessions
-- Live auto-refresh: Open tabs automatically refresh when files/folders are created, removed, renamed or modified by another application
-- Copy / Cut / Paste with conflict management
+  * File information
+  * Permissions editing
+  * Open-with selection
+* Window and column sizes size are saved between sessions
+* Live auto-refresh: Open tabs automatically refresh when files/folders are created, removed, renamed or modified by another application
+* Copy / Cut / Paste with conflict management, using `Ctrl+X`, `Ctrl+C` and `Ctrl+V`
 
 ### Keyboard Shortcuts
 - **Ctrl+L**: Toggle path edit mode
@@ -43,6 +43,8 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
 - **Alt+Enter**: Properties dialog for selected item
 - **Enter**: Open selected item
 - **Backspace**: Navigate to parent directory
+- **Alt+<**: Jump to first item in list (Emacs-style beginning)
+- **Alt+>**: Jump to last item in list (Emacs-style end)
 - **Esc**: Clear filter (when active)
 - **Ctrl+PageUp**: Select tab to the left
 - **Ctrl+PageDown**: Select tab to the right
@@ -50,6 +52,8 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
 - **Ctrl+X**: Cut file/folder
 - **Ctrl+C**: Copy file/folder
 - **Ctrl+V**: Paste file/folder
+
+Note: Depending on keyboard layout these Emacs-style shortcuts may require holding Shift together with Alt to produce the < and > characters (e.g. on US keyboards Alt+Shift+, and Alt+Shift+.). On Swedish keyboards they map directly to Alt+< and Alt+Shift+<.
 
 ## Installation
 

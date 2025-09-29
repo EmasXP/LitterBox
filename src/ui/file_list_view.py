@@ -491,6 +491,17 @@ class FileListView(QTreeView):
 
     def keyPressEvent(self, event):
         """Handle key press events for navigation and actions"""
+        # Emacs-style: Alt+< (M-<) go to beginning, Alt+> (M->) go to end
+        # On many layouts this is produced via Alt+Shift+',' and Alt+Shift+'.'
+        # We check modifiers and the text to remain layout-agnostic.
+        if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            txt = event.text()
+            if txt == '<':
+                self._jump_to_beginning()
+                return
+            elif txt == '>':
+                self._jump_to_end()
+                return
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
             # Enter: open selected item
             current_index = self.currentIndex()
@@ -581,6 +592,22 @@ class FileListView(QTreeView):
         if new_index and new_index.isValid():
             self.setCurrentIndex(new_index)
             self.scrollTo(new_index, QAbstractItemView.ScrollHint.EnsureVisible)
+
+    def _jump_to_beginning(self):
+        model = self.model()
+        if model and model.rowCount() > 0:
+            first = model.index(0, 0)
+            if first.isValid():
+                self.setCurrentIndex(first)
+                self.scrollTo(first, QAbstractItemView.ScrollHint.PositionAtTop)
+
+    def _jump_to_end(self):
+        model = self.model()
+        if model and model.rowCount() > 0:
+            last = model.index(model.rowCount() - 1, 0)
+            if last.isValid():
+                self.setCurrentIndex(last)
+                self.scrollTo(last, QAbstractItemView.ScrollHint.PositionAtBottom)
 
     def _get_visible_row_count(self):
         """Calculate the number of rows that are currently visible in the view"""
