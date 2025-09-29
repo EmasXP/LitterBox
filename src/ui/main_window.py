@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QToolBar, QPushButton, QTabWidget, QLineEdit,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
                              QMenu, QDialog)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QEventLoop
 from PyQt6.QtGui import QKeySequence, QShortcut, QAction
 from pathlib import Path
 import os
@@ -15,6 +15,9 @@ from ui.places_button import PlacesButton
 from ui.file_list_view import FileListView
 from core.file_operations import FileOperations
 from utils.settings import Settings
+from core.clipboard_manager import ClipboardManager
+from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
+from typing import Optional
 
 class FilterBar(QFrame):
     """Filter bar that appears at the bottom when typing"""
@@ -311,6 +314,30 @@ class FileTab(QWidget):
         properties_action = menu.addAction("Properties")
         properties_action.triggered.connect(lambda: self.parent().show_properties(path) if self.parent() and hasattr(self.parent(), 'show_properties') else None)
 
+        # Clipboard actions
+        menu.addSeparator()
+        # Resolve main window (safer than parent() for nested widgets)
+        main_window = self.window()
+
+        def _do_copy():
+            if main_window and hasattr(main_window, 'copy_selection'):
+                main_window.copy_selection(False)
+
+        def _do_cut():
+            if main_window and hasattr(main_window, 'copy_selection'):
+                main_window.copy_selection(True)
+
+        def _do_paste():
+            if main_window and hasattr(main_window, 'paste_into_current'):
+                main_window.paste_into_current()
+
+        copy_action = menu.addAction("Copy")
+        copy_action.triggered.connect(_do_copy)
+        cut_action = menu.addAction("Cut")
+        cut_action.triggered.connect(_do_cut)
+        paste_action = menu.addAction("Paste")
+        paste_action.triggered.connect(_do_paste)
+
         menu.exec(position)
 
     def rename_item(self, path):
@@ -462,6 +489,18 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = Settings()
+        self.transfer_manager = FileTransferManager()
+        # Signal-based conflict dialog marshaling
+        # We'll create a lightweight helper QObject living in the GUI thread to show the dialog.
+        class _ConflictBridge(QObject):
+            request = pyqtSignal(object, object, object)  # existing Path, source Path, completion callback
+        self._conflict_bridge = _ConflictBridge()
+        self._conflict_bridge.request.connect(self._show_conflict_dialog)
+        # Debounced refresh timer for file copy progress (avoids rapid repaint churn)
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(250)  # ms
+        self._refresh_timer.timeout.connect(self._refresh_visible_tab)
 
         # Track recently used tab order (most recent first) for Ctrl+Tab switching
         self.recent_tab_order = []
@@ -492,6 +531,13 @@ class MainWindow(QMainWindow):
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         layout.addWidget(self.tab_widget)
+
+        # Transfer panel
+        from ui.transfer_panel import TransferPanel
+        self.transfer_panel = TransferPanel()
+        self.transfer_panel.setVisible(False)
+        layout.addWidget(self.transfer_panel)
+        self.transfer_manager.task_added.connect(self._on_task_added)
 
         # Create initial tab
         self.add_new_tab()
@@ -559,6 +605,14 @@ class MainWindow(QMainWindow):
         # Ctrl+Tab: Switch tabs by recently used order
         ctrl_tab = QShortcut(QKeySequence("Ctrl+Tab"), self)
         ctrl_tab.activated.connect(self.switch_to_recent_tab)
+
+        # Copy/Cut/Paste
+        sc_copy = QShortcut(QKeySequence.StandardKey.Copy, self)
+        sc_copy.activated.connect(self.copy_selection)
+        sc_cut = QShortcut(QKeySequence.StandardKey.Cut, self)
+        sc_cut.activated.connect(lambda: self.copy_selection(cut=True))
+        sc_paste = QShortcut(QKeySequence.StandardKey.Paste, self)
+        sc_paste.activated.connect(self.paste_into_current)
 
     def add_new_tab(self, path=None):
         """Add a new tab"""
@@ -637,9 +691,10 @@ class MainWindow(QMainWindow):
         if current_tab:
             current_tab.navigate_to(path)
 
-    def get_current_tab(self):
-        """Get the current active tab"""
-        return self.tab_widget.currentWidget()
+    def get_current_tab(self) -> Optional['FileTab']:
+        """Get the current active tab as FileTab (None if not a FileTab)"""
+        widget = self.tab_widget.currentWidget()
+        return widget if isinstance(widget, FileTab) else None
 
     def navigate_to_place(self, path):
         """Navigate current tab to a place"""
@@ -764,6 +819,100 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, event):
         """Handle global key events"""
         super().keyPressEvent(event)
+
+    # ---- Copy/Cut/Paste ----
+    def copy_selection(self, cut: bool = False):
+        current_tab = self.get_current_tab()
+        if not current_tab:
+            return
+        selected = current_tab.file_list.get_selected_items()
+        if not selected:
+            return
+        ClipboardManager.set_files(selected, operation='cut' if cut else 'copy')
+
+    def paste_into_current(self):
+        current_tab = self.get_current_tab()
+        if not current_tab:
+            return
+        clip = ClipboardManager.get_files()
+        if not clip or not clip.paths:
+            return
+        dest_dir = current_tab.current_path
+        move = (clip.operation == 'cut')
+        task = self.transfer_manager.start_transfer(
+            clip.paths,
+            dest_dir,
+            move=move,
+            conflict_callback=self._conflict_handler
+        )
+        # Debounced refresh trigger on progress + on finish (final state)
+        task.file_progress.connect(self._schedule_refresh)
+        task.finished.connect(lambda *_: self._schedule_refresh(""))
+        self.transfer_panel.setVisible(True)
+
+    def _conflict_handler(self, existing, source):
+        """Called in worker thread: synchronously obtain a ConflictDecision via GUI thread signal."""
+        import threading
+        result_holder = {}
+        done = threading.Event()
+
+        def complete(decision: ConflictDecision):
+            result_holder['d'] = decision
+            done.set()
+
+        # Emit to GUI thread
+        self._conflict_bridge.request.emit(existing, source, complete)
+
+        # Wait (blocking this worker) until decision made or cancellation
+        while not done.is_set():
+            done.wait(0.05)
+            if self.transfer_manager is None:
+                break
+        return result_holder.get('d', ConflictDecision('skip'))
+
+    def _show_conflict_dialog(self, existing, source, complete_cb):
+        from ui.conflict_dialog import ConflictDialog
+        dlg = ConflictDialog(existing.name, self, source_path=source, existing_path=existing)
+        dlg.exec()
+        if dlg.decision == 'overwrite':
+            complete_cb(ConflictDecision('overwrite', apply_all=dlg.apply_all))
+            return
+        if dlg.decision == 'rename':
+            # Use user-entered new name if provided, else fallback to internal suggestion
+            if dlg.new_name:
+                from pathlib import Path
+                complete_cb(ConflictDecision('rename', new_path=existing.parent / dlg.new_name))
+            else:
+                complete_cb(ConflictDecision('rename', new_path=suggest_rename(existing)))
+            return
+        if dlg.decision == 'skip':
+            complete_cb(ConflictDecision('skip'))
+            return
+        if dlg.decision == 'cancel':
+            complete_cb(ConflictDecision('cancel'))
+            return
+        complete_cb(ConflictDecision('skip'))
+
+    def _on_task_added(self, task):
+        self.transfer_panel.setVisible(True)
+        self.transfer_panel.add_task(task)
+        task.finished.connect(lambda *_: self._maybe_hide_panel())
+
+    def _maybe_hide_panel(self):
+        if not self.transfer_manager.active_tasks():
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(500, lambda: self.transfer_panel.setVisible(False) if not self.transfer_manager.active_tasks() else None)
+
+    # ---- Debounced UI refresh helpers ----
+    def _schedule_refresh(self, _path: str):
+        # Only schedule once per interval
+        if not self._refresh_timer.isActive():
+            self._refresh_timer.start()
+
+    def _refresh_visible_tab(self):
+        tab = self.get_current_tab()
+        if tab and hasattr(tab, 'file_list'):
+            tab.file_list.refresh()
 
     def restore_settings(self):
         """Restore window settings"""

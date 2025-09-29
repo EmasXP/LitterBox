@@ -31,10 +31,9 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
   - File information
   - Permissions editing
   - Open-with selection
-
-
-- Window size and sort preferences saved between sessions
+- Window and column sizes size are saved between sessions
 - Live auto-refresh: Open tabs automatically refresh when files/folders are created, removed, renamed or modified by another application
+- Copy / Cut / Paste with conflict management
 
 ### Keyboard Shortcuts
 - **Ctrl+L**: Toggle path edit mode
@@ -48,6 +47,9 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
 - **Ctrl+PageUp**: Select tab to the left
 - **Ctrl+PageDown**: Select tab to the right
 - **Ctrl+Tab**: Select previously used tab
+- **Ctrl+X**: Cut file/folder
+- **Ctrl+C**: Copy file/folder
+- **Ctrl+V**: Paste file/folder
 
 ## Installation
 
@@ -59,7 +61,7 @@ This will automatically create a Python Virtual Environment. (I'm not sure I lik
 ./run.sh
 ```
 
-### Manual Installation
+### Manual Installation using venv
 ```bash
 # Create virtual environment
 python3 -m venv .venv
@@ -79,6 +81,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python main.py
 ```
+### Manual installation using system PIP
 
 One can also run without a virtual environment. I recommend this because it makes the window looks nicer:
 
@@ -91,6 +94,7 @@ python3 main.py
 - Linux (tested on modern distributions)
 - Python 3.8+
 - PyQt6
+- watchdog (Python library)
 - Standard Linux utilities: `xdg-open`, `gio` (for trash functionality)
 
 ## Installing the .desktop file
