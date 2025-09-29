@@ -4,7 +4,7 @@ _Such empty_
 
 # MEDIUM
 
-* The icons are only Folder or File, does not show file type.
+* Shift+Up/Down to select files/folders
 * Icons instead of buttons for "New folder" and "New file"
 * Padding between the path bar and the separator
 * Make the last button in the path bar (the current folder) more distinct. Maybe bold or an alternate background color.
@@ -31,3 +31,5 @@ _Such empty_
 * Close tabs to the left/right
 * Middle-click to close tabs
 * Paste: Folder conflict: "Replace" option. Deletes the target and replaces it with the source. Important to check if Source and Target are the same here.
+* Rename: Pre-select the "hello" part of "hello.txt"
+* Clicking on folder in the path bar: Pre-select the used-to-be child

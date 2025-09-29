@@ -4,8 +4,13 @@ File list view widget - displays files and folders in a detailed list
 from PyQt6.QtWidgets import (QTreeWidget, QTreeWidgetItem, QHeaderView,
                              QAbstractItemView, QMenu, QTreeView)
 from PyQt6.QtCore import pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent, QTimer
-from PyQt6.QtGui import QIcon, QDrag, QStandardItemModel, QStandardItem, QKeyEvent
+from PyQt6.QtGui import (
+    QIcon, QDrag, QStandardItemModel, QStandardItem, QKeyEvent,
+    QPixmap, QPainter
+)
 from PyQt6.QtWidgets import QFileIconProvider
+from PyQt6.QtCore import QSize, QMimeDatabase
+from typing import cast
 from core.file_operations import FileOperations
 from datetime import datetime
 import os
@@ -18,9 +23,11 @@ class FileSortProxyModel(QSortFilterProxyModel):
         if not self.filterRegularExpression().pattern():
             return True  # No filter set, accept all
 
-        source_model = self.sourceModel()
-        if not source_model:
+        model_obj = self.sourceModel()
+        if not model_obj:
             return True
+        # Cast for item() access (runtime type is QStandardItemModel)
+        source_model = cast(QStandardItemModel, model_obj)
 
         # Get the name item (column 0)
         name_index = source_model.index(source_row, 0, source_parent)
@@ -197,6 +204,15 @@ class FileListView(QTreeView):
         self._pending_save = False
         self._pending_resize_fit = False
         self._icon_provider = QFileIconProvider()
+        # MIME database & icon cache (initialized here so type checkers see attributes)
+        try:
+            self._mime_db = QMimeDatabase()
+        except Exception:  # pragma: no cover - fallback if unavailable
+            self._mime_db = None
+        self._icon_cache = {}
+        self._overlay_cache = {}
+        self._base_icon_size = QSize(16, 16)  # standard small icon size for list view
+        self._overlay_icon_size = QSize(8, 8)
 
     # already connected above if header available
 
@@ -286,15 +302,13 @@ class FileListView(QTreeView):
             name_item.setEditable(False)
             name_item.setData(entry['path'], Qt.ItemDataRole.UserRole)  # store path
             name_item.setData(entry['is_dir'], Qt.ItemDataRole.UserRole + 1)  # directory flag
-            # Assign icon (folder/file)
+            # Assign themed / MIME icon with overlays
             try:
-                if entry['is_dir']:
-                    icon = self._icon_provider.icon(QFileIconProvider.IconType.Folder)
-                else:
-                    icon = self._icon_provider.icon(QFileIconProvider.IconType.File)
+                icon = self._icon_for_entry(entry)
                 if icon and not icon.isNull():
                     name_item.setIcon(icon)
             except Exception:
+                # Silent fallback, no icon
                 pass
 
             size_item = QStandardItem("" if entry['is_dir'] else FileOperations.format_size(entry['size']))
@@ -634,3 +648,152 @@ class FileListView(QTreeView):
         if search and search.isprintable():
             self.filter_requested.emit(search)
         # Don't call parent's keyboardSearch to prevent default behavior
+
+    # ---------------- Icon Logic ----------------
+    def _icon_for_entry(self, entry):
+        """Return a QIcon for a directory/file using MIME type detection and theme icons.
+
+        Adds overlays for symlinks and executables.
+        Caches results based on key signature.
+        """
+        path = entry['path']
+        is_dir = entry.get('is_dir', False)
+        # Additional flags we may want for cache key
+        # Determine symlink & executable lazily to avoid repeated os.lstat calls (info already present?)
+        # file_operations.get_file_info currently sets 'is_symlink' and we can derive executability via permissions
+        is_symlink = entry.get('is_symlink', False)
+        # Executable heuristic: non-dir & any execute bit -> treat as executable for overlay and icon bias
+        is_executable = False
+        if not is_dir:
+            # Permissions fields exist in entry from get_file_info
+            exec_bits = [entry.get('owner_execute'), entry.get('group_execute'), entry.get('other_execute')]
+            is_executable = any(exec_bits)
+
+        cache_key = (is_dir, is_symlink, is_executable, entry.get('name'), entry.get('size', 0))
+        if cache_key in self._icon_cache:
+            return self._icon_cache[cache_key]
+
+        # Base icon selection
+        if is_dir:
+            # Try to pick up themed folder icon, QFileIconProvider already honors special directories (Desktop, Downloads...) via QFileInfo path.
+            # We'll attempt QFileIconProvider for path-specific folder (it can resolve special icons) else fallback to theme.
+            try:
+                from PyQt6.QtCore import QFileInfo
+                fi = QFileInfo(path)
+                base_icon = self._icon_provider.icon(fi)  # provider can use platform hints
+            except Exception:
+                base_icon = QIcon.fromTheme('inode-directory')
+            if base_icon.isNull():
+                base_icon = QIcon.fromTheme('folder')
+            if base_icon.isNull():
+                base_icon = self._icon_provider.icon(QFileIconProvider.IconType.Folder)
+        else:
+            base_icon = self._file_icon_from_mime(path, is_executable)
+
+        # Apply overlays if needed
+        if is_symlink or is_executable:
+            composed = self._apply_overlays(base_icon, is_symlink=is_symlink, is_executable=is_executable)
+        else:
+            composed = base_icon
+
+        self._icon_cache[cache_key] = composed
+        return composed
+
+    def _file_icon_from_mime(self, path, is_executable):
+        """Resolve icon for a file using MIME database and theme; prefer executable icon when applicable."""
+        icon = QIcon()
+        try:
+            mime_type = None
+            if self._mime_db is not None:
+                mime_type = self._mime_db.mimeTypeForFile(path, QMimeDatabase.MatchMode.MatchContent)
+            if mime_type and mime_type.isValid():
+                # Primary attempt: use exact mime name, e.g. text-plain, image-png
+                mime_name = mime_type.name().replace('/', '-')
+                icon = QIcon.fromTheme(mime_name)
+                if icon.isNull():
+                    # Generic major type fallback (text, image, audio, video, application)
+                    major = mime_name.split('-', 1)[0]
+                    generic_map = {
+                        'text': 'text-x-generic',
+                        'image': 'image-x-generic',
+                        'audio': 'audio-x-generic',
+                        'video': 'video-x-generic',
+                        'application': 'application-x-executable' if is_executable else 'application-octet-stream',
+                    }
+                    guess = generic_map.get(major)
+                    if guess:
+                        icon = QIcon.fromTheme(guess)
+        except Exception:
+            pass
+
+        if is_executable:
+            # Prefer explicit executable icon if available
+            exec_icon = QIcon.fromTheme('application-x-executable')
+            if not exec_icon.isNull() and icon.cacheKey() != exec_icon.cacheKey():
+                icon = exec_icon
+
+        if icon.isNull():
+            # QFileIconProvider fallback
+            icon = self._icon_provider.icon(QFileIconProvider.IconType.File)
+        return icon
+
+    def _apply_overlays(self, base_icon, is_symlink=False, is_executable=False):
+        """Compose overlay badges (bottom-right) onto base icon.
+
+        We draw tiny emblem-like overlays using theme icons if available (emblem-symbolic-link, emblem-symbolic, application-x-executable),
+        else fallback to simple glyph rendering.
+        Cache by (id(base_icon.cacheKey), is_symlink, is_executable).
+        """
+        try:
+            key = (base_icon.cacheKey(), is_symlink, is_executable)
+            if key in self._overlay_cache:
+                return self._overlay_cache[key]
+
+            # Obtain pixmap for base
+            pm = base_icon.pixmap(self._base_icon_size)
+            if pm.isNull():
+                return base_icon
+
+            painter = QPainter(pm)
+            try:
+                offset = 0
+                # Draw overlays stacked horizontally from right edge
+                overlays = []
+                if is_symlink:
+                    overlays.append(self._overlay_pixmap(['emblem-symbolic-link', 'emblem-symlink', 'emblem-symbolic']))
+                if is_executable:
+                    overlays.append(self._overlay_pixmap(['application-x-executable', 'system-run']))
+
+                for ov_pm in overlays:
+                    if ov_pm and not ov_pm.isNull():
+                        # Draw bottom-right stacking leftwards
+                        x = pm.width() - ov_pm.width() - offset
+                        y = pm.height() - ov_pm.height()
+                        painter.drawPixmap(x, y, ov_pm)
+                        offset += ov_pm.width() - 2  # slight overlap for compactness
+            finally:
+                painter.end()
+
+            icon = QIcon(pm)
+            self._overlay_cache[key] = icon
+            return icon
+        except Exception:
+            return base_icon
+
+    def _overlay_pixmap(self, icon_names):
+        """Return a small pixmap for first available icon name else fallback drawn symbol."""
+        for name in icon_names:
+            ic = QIcon.fromTheme(name)
+            if ic and not ic.isNull():
+                pm = ic.pixmap(self._overlay_icon_size)
+                if not pm.isNull():
+                    return pm
+        # Fallback: create a simple badge pixmap
+        pm = QPixmap(self._overlay_icon_size)
+        pm.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pm)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(Qt.GlobalColor.darkGray)
+        painter.drawEllipse(0, 0, pm.width(), pm.height())
+        painter.end()
+        return pm
