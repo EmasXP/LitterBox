@@ -4,7 +4,7 @@ Main window for the LitterBox file manager
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QToolBar, QPushButton, QTabWidget, QLineEdit,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
-                             QMenu, QDialog)
+                             QMenu, QDialog, QTabBar)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QEventLoop
 from PyQt6.QtGui import QKeySequence, QShortcut, QAction
 from pathlib import Path
@@ -530,6 +530,17 @@ class MainWindow(QMainWindow):
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
+        # Make tabs reorderable via drag & drop
+        bar = self.tab_widget.tabBar()
+        # Guard for static analysis: ensure bar is a QTabBar instance
+        if isinstance(bar, QTabBar):  # pragma: no branch
+            try:
+                bar.setMovable(True)  # type: ignore[attr-defined]
+                # Update recent tab order bookkeeping when tabs are moved
+                bar.tabMoved.connect(self.on_tab_moved)  # type: ignore[attr-defined]
+            except Exception:
+                # Fail silently if platform/Qt version does not support movable tabs
+                pass
         layout.addWidget(self.tab_widget)
 
         # Transfer panel
@@ -656,7 +667,9 @@ class MainWindow(QMainWindow):
 
     def update_tab_visibility(self):
         """Show/hide tab bar based on number of tabs"""
-        self.tab_widget.tabBar().setVisible(self.tab_widget.count() > 1)
+        bar = self.tab_widget.tabBar()
+        if isinstance(bar, QTabBar):  # pragma: no branch
+            bar.setVisible(self.tab_widget.count() > 1)  # type: ignore[attr-defined]
 
     def update_tab_title_for_tab(self, tab, path):
         """Update the title for a specific tab widget"""
@@ -678,12 +691,10 @@ class MainWindow(QMainWindow):
         if index >= 0:
             # Update recently used tab order
             self.update_recent_tab_order(index)
-
-            tab = self.tab_widget.widget(index)
-            if tab and hasattr(tab, 'current_path'):
-                self.toolbar_path_navigator.set_path(tab.current_path)
-                # Ensure the file list has focus for keyboard navigation
-                tab.file_list.setFocus()
+            tab_widget = self.tab_widget.widget(index)
+            if isinstance(tab_widget, FileTab):
+                self.toolbar_path_navigator.set_path(tab_widget.current_path)
+                tab_widget.file_list.setFocus()
 
     def navigate_current_tab_to_path(self, path):
         """Navigate current tab to specified path (from toolbar path navigator)"""
@@ -816,9 +827,44 @@ class MainWindow(QMainWindow):
             if self.recent_tab_order[i] > closed_index:
                 self.recent_tab_order[i] -= 1
 
-    def keyPressEvent(self, event):
-        """Handle global key events"""
-        super().keyPressEvent(event)
+    def keyPressEvent(self, a0):  # type: ignore[override]
+        """Handle global key events (delegate to base)."""
+        super().keyPressEvent(a0)
+
+    def on_tab_moved(self, from_index: int, to_index: int):
+        """Adjust internal recent_tab_order indices after a drag reorder.
+
+        When a tab is moved, intermediate tabs shift left/right. We adjust
+        stored indices so Ctrl+Tab recent switching keeps working correctly.
+        """
+        if from_index == to_index:
+            return
+
+        updated = []
+        for idx in self.recent_tab_order:
+            if idx == from_index:
+                updated.append(to_index)
+            elif from_index < to_index:
+                # Moved right: tabs between (from_index, to_index] shift left by 1
+                if from_index < idx <= to_index:
+                    updated.append(idx - 1)
+                else:
+                    updated.append(idx)
+            else:  # from_index > to_index
+                # Moved left: tabs between [to_index, from_index) shift right by 1
+                if to_index <= idx < from_index:
+                    updated.append(idx + 1)
+                else:
+                    updated.append(idx)
+
+        # Deduplicate while preserving order (in rare pathological cases)
+        seen = set()
+        deduped = []
+        for val in updated:
+            if val not in seen:
+                seen.add(val)
+                deduped.append(val)
+        self.recent_tab_order = deduped
 
     # ---- Copy/Cut/Paste ----
     def copy_selection(self, cut: bool = False):
@@ -924,7 +970,7 @@ class MainWindow(QMainWindow):
         """Save window settings"""
         self.settings.set("window_geometry", self.saveGeometry())
 
-    def closeEvent(self, event):
-        """Handle window close event"""
+    def closeEvent(self, a0):  # type: ignore[override]
+        """Handle window close event and persist settings."""
         self.save_settings()
-        super().closeEvent(event)
+        super().closeEvent(a0)
