@@ -42,7 +42,8 @@ In fact, the remainder of this README is written by AI too:
 - **Ctrl+L**: Toggle path edit mode
 - **Ctrl+W**: Close current tab
 - **Ctrl+T**: New tab
-- **Ctrl+Enter**: Properties dialog for selected item
+- **Ctrl+Enter**: Open with dialog for selected item
+- **Alt+Enter**: Properties dialog for selected item
 - **Enter**: Open selected item
 - **Backspace**: Navigate to parent directory
 - **Esc**: Clear filter (when active)
@@ -79,7 +80,7 @@ python main.py
 1. **Create**: Use toolbar buttons for new folders/files
 2. **Rename**: Right-click item → Rename
 3. **Delete**: Right-click item → Delete or Move to Trash
-4. **Properties**: Right-click item → Properties (or Ctrl+Enter)
+4. **Properties**: Right-click item → Properties (or Alt+Enter)
 
 ### Advanced Usage
 1. **Multiple Tabs**: Ctrl+T for new tab, Ctrl+W to close

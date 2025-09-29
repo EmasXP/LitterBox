@@ -225,7 +225,8 @@ class FileTab(QWidget):
 
         # Open with...
         open_with_action = menu.addAction("Open with...")
-        open_with_action.triggered.connect(lambda: self.show_open_with_dialog(path))
+        # Delegate to MainWindow if available
+        open_with_action.triggered.connect(lambda: self.parent().show_open_with_dialog(path) if self.parent() and hasattr(self.parent(), 'show_open_with_dialog') else None)
 
         menu.addSeparator()
 
@@ -247,7 +248,7 @@ class FileTab(QWidget):
 
         # Properties
         properties_action = menu.addAction("Properties")
-        properties_action.triggered.connect(lambda: self.show_properties(path))
+        properties_action.triggered.connect(lambda: self.parent().show_properties(path) if self.parent() and hasattr(self.parent(), 'show_properties') else None)
 
         menu.exec(position)
 
@@ -289,36 +290,9 @@ class FileTab(QWidget):
             else:
                 self.file_list.refresh()
 
-    def show_properties(self, path):
-        """Show properties dialog"""
-        from ui.properties_dialog import PropertiesDialog
-        dialog = PropertiesDialog(path, self)
-        dialog.exec()
+    # Removed show_properties & show_open_with_dialog from FileTab; these live on MainWindow
 
-    def show_open_with_dialog(self, path):
-        """Show Open with dialog"""
-        from ui.application_selection_dialog import ApplicationSelectionDialog
-        from core.application_manager import ApplicationManager
-
-        dialog = ApplicationSelectionDialog(path, self)
-        dialog.application_selected.connect(lambda app: self.open_with_application(path, app))
-        dialog.default_changed.connect(lambda app: self.on_default_application_changed(path, app))
-        dialog.exec()
-
-    def open_with_application(self, path, application):
-        """Open file with the specified application"""
-        from core.application_manager import ApplicationManager
-        app_manager = ApplicationManager()
-        success, error = app_manager.open_with_application(path, application)
-
-        if not success:
-            QMessageBox.warning(self, "Open Failed", f"Could not open with {application.name}:\n{error}")
-
-    def on_default_application_changed(self, path, application):
-        """Handle default application change"""
-        # This is called when the default application is changed from the Open with dialog
-        # We don't need to do anything special here, as the change is already applied system-wide
-        pass
+    # open_with_application and on_default_application_changed now live on MainWindow
 
     def apply_filter(self, filter_text):
         """Apply filter to file list"""
@@ -500,9 +474,13 @@ class MainWindow(QMainWindow):
         ctrl_t = QShortcut(QKeySequence("Ctrl+T"), self)
         ctrl_t.activated.connect(self.add_new_tab)
 
-        # Ctrl+Enter: Properties
+        # Alt+Enter: Properties (standard in many file managers)
+        alt_enter = QShortcut(QKeySequence("Alt+Return"), self)
+        alt_enter.activated.connect(self.show_current_properties)
+
+        # Ctrl+Enter: Open with dialog
         ctrl_enter = QShortcut(QKeySequence("Ctrl+Return"), self)
-        ctrl_enter.activated.connect(self.show_current_properties)
+        ctrl_enter.activated.connect(self.show_current_open_with)
 
         # Ctrl+PageUp: Switch to left tab
         ctrl_page_up = QShortcut(QKeySequence("Ctrl+PgUp"), self)
@@ -620,13 +598,48 @@ class MainWindow(QMainWindow):
         if current_tab:
             current_tab.create_new_file()
 
+    def show_current_open_with(self):
+        """Show Open with dialog for currently selected item"""
+        current_tab = self.get_current_tab()
+        if current_tab:
+            selected_items = current_tab.file_list.get_selected_items()
+            if selected_items:
+                self.show_open_with_dialog(selected_items[0])
+
     def show_current_properties(self):
         """Show properties for currently selected item"""
         current_tab = self.get_current_tab()
         if current_tab:
             selected_items = current_tab.file_list.get_selected_items()
             if selected_items:
-                current_tab.show_properties(selected_items[0])
+                self.show_properties(selected_items[0])
+
+    def show_properties(self, path):
+        """Show properties dialog"""
+        from ui.properties_dialog import PropertiesDialog
+        dialog = PropertiesDialog(path, self)
+        dialog.exec()
+
+    def show_open_with_dialog(self, path):
+        """Show Open with dialog"""
+        from ui.application_selection_dialog import ApplicationSelectionDialog
+        dialog = ApplicationSelectionDialog(path, self)
+        dialog.application_selected.connect(lambda app: self.open_with_application(path, app))
+        dialog.default_changed.connect(lambda app: self.on_default_application_changed(path, app))
+        dialog.exec()
+
+    def open_with_application(self, path, application):
+        """Open file with the specified application"""
+        from core.application_manager import ApplicationManager
+        app_manager = ApplicationManager()
+        success, error = app_manager.open_with_application(path, application)
+        if not success:
+            QMessageBox.warning(self, "Open Failed", f"Could not open with {application.name}:\n{error}")
+
+    def on_default_application_changed(self, path, application):
+        """Handle default application change (placeholder)"""
+        # Change already applied system-wide; nothing extra needed.
+        pass
 
     def switch_to_left_tab(self):
         """Switch to the tab on the left (previous tab)"""

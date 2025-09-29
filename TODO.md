@@ -5,8 +5,6 @@ _Such empty_
 # MEDIUM
 
 * Listen for events on the current folder, for new, updated and deleted files
-* The Properties shortcut shall be Alt+Enter, not Ctrl+Enter
-* Ctrl+Enter to trigger "Open with..."
 * I want to implement Copy, Cut and Paste functionality:
   - When pasting, and target file already exist, the user shall be given three options: Overwrite, Rename or Cancel
   - On Rename: Suggest a new name, for example "file (2).txt"
@@ -28,5 +26,8 @@ _Such empty_
 * When deep in tree, the path bar does not fit well
 * Filter in "Open with..." dialog
 * "Open with..." "Other application"
+  * List all applications that accept a file path
+  * Add option to browse a binary via a file picker
 * When renaming file: it would be nice if the file row was still selected after rename
 * The "raw" path bar (the text input one) could be wider
+* When opening file, change CWD first
