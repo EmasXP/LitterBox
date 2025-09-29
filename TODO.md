@@ -1,8 +1,6 @@
 # HIGH
 
-* Paste: Folder conflict: Two options:
-  * 1: Overwrite (will delete the old folder, and replace it with this new one) (but what happens if the source and target is the same folder?)
-  * 2: Walk into (merge into? write into? combine?): Keep current folder, ask for subsequent conflicts in the folder.
+_Such empty_
 
 # MEDIUM
 
@@ -14,6 +12,7 @@
   * Files to folder
   * LitterBox to external application
   * External application to LitterBox
+* Paste: Folder conflict: Prevent overwrite if Source and Target is the same
 
 # LOW
 
@@ -31,3 +30,4 @@
 * Close other tabs
 * Close tabs to the left/right
 * Middle-click to close tabs
+* Paste: Folder conflict: "Replace" option. Deletes the target and replaces it with the source. Important to check if Source and Target are the same here.
