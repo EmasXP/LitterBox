@@ -1,6 +1,8 @@
 # HIGH
 
-* Right click -> Open with..., has stopped working
+* Paste: Folder conflict: Two options:
+  * 1: Overwrite (will delete the old folder, and replace it with this new one) (but what happens if the source and target is the same folder?)
+  * 2: Walk into (merge into? write into? combine?): Keep current folder, ask for subsequent conflicts in the folder.
 
 # MEDIUM
 
@@ -26,3 +28,6 @@
 * The "raw" path bar (the text input one) could be wider
 * When opening file, change CWD first
 * Feels like our testing structure is wonky, there must be a better way
+* Close other tabs
+* Close tabs to the left/right
+* Middle-click to close tabs

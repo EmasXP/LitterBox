@@ -17,7 +17,7 @@ from core.file_operations import FileOperations
 from utils.settings import Settings
 from core.clipboard_manager import ClipboardManager
 from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
-from typing import Optional
+from typing import Optional, Any
 
 class FilterBar(QFrame):
     """Filter bar that appears at the bottom when typing"""
@@ -280,44 +280,57 @@ class FileTab(QWidget):
         """Show context menu for file/folder"""
         menu = QMenu(self)
 
+        # Resolve main window once (QTabWidget is the direct parent, so self.parent() was wrong)
+        main_window: Any = self.window()
+
         # Open
-        open_action = menu.addAction("Open")
+        open_action: QAction = menu.addAction("Open")  # type: ignore[assignment]
         if FileOperations.is_executable(path):
-            open_action.triggered.connect(lambda: self.handle_executable_activation(path))
+            if open_action:
+                open_action.triggered.connect(lambda: self.handle_executable_activation(path))  # type: ignore[attr-defined]
         else:
-            open_action.triggered.connect(lambda: FileOperations.open_with_default(path))
+            if open_action:
+                open_action.triggered.connect(lambda: FileOperations.open_with_default(path))  # type: ignore[attr-defined]
 
         # Open with...
-        open_with_action = menu.addAction("Open with...")
-        # Delegate to MainWindow if available
-        open_with_action.triggered.connect(lambda: self.parent().show_open_with_dialog(path) if self.parent() and hasattr(self.parent(), 'show_open_with_dialog') else None)
+        open_with_action: QAction = menu.addAction("Open with...")  # type: ignore[assignment]
+        if open_with_action:
+            is_file = os.path.isfile(path)
+            if not is_file:
+                open_with_action.setEnabled(False)  # type: ignore[attr-defined]
+            # Use explicit helper to avoid silent lambda failures & accept checked arg
+            open_with_action.triggered.connect(lambda _checked=False, p=path: self._open_with(p))  # type: ignore[attr-defined]
 
         menu.addSeparator()
 
         # Rename
-        rename_action = menu.addAction("Rename")
-        rename_action.triggered.connect(lambda: self.rename_item(path))
+        rename_action: QAction = menu.addAction("Rename")  # type: ignore[assignment]
+        if rename_action:
+            rename_action.triggered.connect(lambda: self.rename_item(path))  # type: ignore[attr-defined]
 
         menu.addSeparator()
 
         # Move to trash
-        trash_action = menu.addAction("Move to Trash")
-        trash_action.triggered.connect(lambda: self.move_to_trash(path))
+        trash_action: QAction = menu.addAction("Move to Trash")  # type: ignore[assignment]
+        if trash_action:
+            trash_action.triggered.connect(lambda: self.move_to_trash(path))  # type: ignore[attr-defined]
 
         # Delete
-        delete_action = menu.addAction("Delete")
-        delete_action.triggered.connect(lambda: self.delete_item(path))
+        delete_action: QAction = menu.addAction("Delete")  # type: ignore[assignment]
+        if delete_action:
+            delete_action.triggered.connect(lambda: self.delete_item(path))  # type: ignore[attr-defined]
 
         menu.addSeparator()
 
         # Properties
-        properties_action = menu.addAction("Properties")
-        properties_action.triggered.connect(lambda: self.parent().show_properties(path) if self.parent() and hasattr(self.parent(), 'show_properties') else None)
+        properties_action: QAction = menu.addAction("Properties")  # type: ignore[assignment]
+        if properties_action:
+            properties_action.triggered.connect(  # type: ignore[attr-defined]
+                lambda mw=main_window: mw.show_properties(path) if mw and hasattr(mw, 'show_properties') else None
+            )
 
         # Clipboard actions
         menu.addSeparator()
-        # Resolve main window (safer than parent() for nested widgets)
-        main_window = self.window()
 
         def _do_copy():
             if main_window and hasattr(main_window, 'copy_selection'):
@@ -331,14 +344,31 @@ class FileTab(QWidget):
             if main_window and hasattr(main_window, 'paste_into_current'):
                 main_window.paste_into_current()
 
-        copy_action = menu.addAction("Copy")
-        copy_action.triggered.connect(_do_copy)
-        cut_action = menu.addAction("Cut")
-        cut_action.triggered.connect(_do_cut)
-        paste_action = menu.addAction("Paste")
-        paste_action.triggered.connect(_do_paste)
+        copy_action: QAction = menu.addAction("Copy")  # type: ignore[assignment]
+        if copy_action:
+            copy_action.triggered.connect(_do_copy)  # type: ignore[attr-defined]
+        cut_action: QAction = menu.addAction("Cut")  # type: ignore[assignment]
+        if cut_action:
+            cut_action.triggered.connect(_do_cut)  # type: ignore[attr-defined]
+        paste_action: QAction = menu.addAction("Paste")  # type: ignore[assignment]
+        if paste_action:
+            paste_action.triggered.connect(_do_paste)  # type: ignore[attr-defined]
 
         menu.exec(position)
+
+    def _open_with(self, path: str):
+        """Invoke the main window's Open With dialog with safety checks."""
+        if not os.path.isfile(path):
+            QMessageBox.information(self, "Open With", "Cannot use 'Open with...' on a directory.")
+            return
+        mw = self.window()
+        if mw and hasattr(mw, 'show_open_with_dialog'):
+            try:
+                mw.show_open_with_dialog(path)  # type: ignore[call-arg]
+            except Exception as e:  # pragma: no cover
+                QMessageBox.warning(self, "Open With Failed", f"Could not open dialog:\n{e}")
+        else:  # pragma: no cover
+            QMessageBox.warning(self, "Open With", "Main window does not provide Open With dialog.")
 
     def rename_item(self, path):
         """Rename file or folder"""
