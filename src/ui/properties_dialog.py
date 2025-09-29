@@ -201,26 +201,29 @@ class PropertiesDialog(QDialog):
     def populate_open_with_applications(self):
         """Populate the open with applications combo box"""
         self.open_with_combo.clear()
-        
+
         # Get default application
         self.default_application = self.app_manager.get_default_application(self.file_path)
-        
-        # Get all available applications for this file type
-        self.available_applications = self.app_manager.get_applications_for_file(self.file_path)
-        
+
+        # Get ranked applications for improved suggestions
+        try:
+            self.available_applications = self.app_manager.get_ranked_applications_for_file(self.file_path)
+        except AttributeError:
+            self.available_applications = self.app_manager.get_applications_for_file(self.file_path)
+
         # Track current selection index
         current_selection = 0
-        
+
         # Add applications to combo box
         if self.default_application:
             # Add default application first
             self.open_with_combo.addItem(f"{self.default_application.name} (default)")
-            
+
         # Add other applications
         for app in self.available_applications:
             if not self.default_application or app.path != self.default_application.path:
                 self.open_with_combo.addItem(app.name)
-        
+
         # If no applications available, show a message
         if not self.available_applications:
             self.open_with_combo.addItem("No applications available")
@@ -264,50 +267,50 @@ class PropertiesDialog(QDialog):
 
         except OSError as e:
             QMessageBox.warning(self, "Permission Error", f"Could not change permissions:\n{str(e)}")
-    
+
     def on_application_changed(self):
         """Handle application selection change"""
         # This is called when user changes the combo box selection
         # The actual change is applied when Apply button is clicked
         pass
-    
+
     def get_selected_application(self) -> DesktopApplication:
         """Get the currently selected application from combo box"""
         current_index = self.open_with_combo.currentIndex()
         current_text = self.open_with_combo.currentText()
-        
+
         # If it's the default application (contains "(default)")
         if "(default)" in current_text and self.default_application:
             return self.default_application
-        
+
         # Otherwise, find the application by name from available applications
         for app in self.available_applications:
             if app.name == current_text:
                 return app
-        
+
         return None
-    
+
     def apply_changes(self):
         """Apply the changes made in the Properties dialog"""
         if not self.file_info['is_file']:
             return
-        
+
         # Check if application selection has changed
         selected_app = self.get_selected_application()
         if selected_app and selected_app != self.default_application:
             # User wants to change the default application
             desktop_file = os.path.basename(selected_app.path)
             success = self.app_manager.set_default_application_for_file(self.file_path, desktop_file)
-            
+
             if success:
                 QMessageBox.information(
-                    self, "Default Application Changed", 
+                    self, "Default Application Changed",
                     f"'{selected_app.name}' is now the default application for this file type."
                 )
                 # Refresh the combo box to show the new default
                 self.populate_open_with_applications()
             else:
                 QMessageBox.warning(
-                    self, "Error", 
+                    self, "Error",
                     f"Could not set '{selected_app.name}' as the default application."
                 )
