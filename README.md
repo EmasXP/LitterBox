@@ -6,52 +6,55 @@ _The entire codebase is written by AI._ This project is an experiment to see how
 
 I have an ambivalent relationship with vibe coding, but I realize I can’t stay set in my ways or cling to the past. If this is the future, I’d better adapt to it.
 
-In fact, the remainder of this README is written by AI too:
+## Key features
 
-## Features
+* "Places" drop down menu for quick access
+* Path bar with buttons
+  * `Ctrl+L` switches to text input, `Esc` returns to buttons
+* Quick buttons for creating a new folder and a new empty file
+* Detailed list view
+  * Persistent column sort: The sort stays the same when navigating between folders, and between application sessions.
+  * Hidden files are always shown
+  * Type-to-filter files and folders with automatic filter bar appearance
+    * `Esc` to clear and hide the filter
+    * Arrow up/down navigation to focus entries in the filtered list
+  * Right-click context menu: "Open with...", "Rename", "Move to trash", "Delete" and "Properties"
+  * `Enter` to open a file or a folder
+    * Executable files will ask for permission to run before being run
+    * Asks if to run in a terminal window if the executable might be a non-GUI application
+  * `Backspace` to navigate to parent folder
+* Multiple tabs
+  * `Ctrl+T` to open a new tab
+  * `Ctrl+W` to close the current tab (or use the close button on the tab)
+  * Tab row is hidden when only one tab is open
+* Properties dialog
+  - File information
+  - Permissions editing
+  - Open-with selection
 
-### Core Interface
-- **Toolbar**: Places button, path navigation as clickable buttons, new folder/file creation buttons
-- **Detailed List View**: Shows files and folders with Name (with icons), Size, and Modified columns
-- **Tab Support**: Multiple tabs with tab bar hidden when only one tab is open
-- **Filter System**: Type-to-filter files with automatic filter bar appearance
-- **Places Dropdown**: Quick navigation to standard directories (Home, Desktop, Downloads, etc.)
 
-### Navigation
-- **Path Buttons**: Click any path component to navigate there
-- **Path Edit Mode**: Ctrl+L switches to text input, Esc returns to buttons
-- **Keyboard Navigation**:
-  - Backspace: Go to parent directory
-  - Enter: Open selected file/folder
-  - Arrow keys: Navigate file list
-  - Typing: Activate filter mode
-
-### File Operations
-- **Context Menu**: Right-click for Open, Open with, Rename, Move to trash, Delete, Properties
-- **Create Operations**: New folder and new file buttons in toolbar
-- **Drag & Drop**: (Basic support in file list)
-- **Hidden Files**: Always shown in the list
-
-### Advanced Features
-- **Properties Dialog**: File information, permissions editing, open-with selection
-- **Persistent Settings**: Window size and sort preferences saved between sessions
-- **Sorting**: Click column headers to sort, persistent across directory navigation
-- **Filter Navigation**: Arrow keys work while filtering is active
-- **Live Auto-Refresh**: Open tabs automatically refresh when files/folders are created, removed, renamed or modified in the current directory (non‑recursive) using watchdog
+- Window size and sort preferences saved between sessions
+- Live auto-refresh: Open tabs automatically refresh when files/folders are created, removed, renamed or modified by another application
 
 ### Keyboard Shortcuts
 - **Ctrl+L**: Toggle path edit mode
-- **Ctrl+W**: Close current tab
 - **Ctrl+T**: New tab
-- **Ctrl+Enter**: Open with dialog for selected item
+- **Ctrl+W**: Close current tab
+- **Ctrl+Enter**: "Open with" dialog for selected item
 - **Alt+Enter**: Properties dialog for selected item
 - **Enter**: Open selected item
 - **Backspace**: Navigate to parent directory
 - **Esc**: Clear filter (when active)
+- **Ctrl+PageUp**: Select tab to the left
+- **Ctrl+PageDown**: Select tab to the right
+- **Ctrl+Tab**: Select previously used tab
 
 ## Installation
 
 ### Quick Start
+
+This will automatically create a Python Virtual Environment. (I'm not sure I like this approach, I might remove it in the future)
+
 ```bash
 ./run.sh
 ```
@@ -69,25 +72,19 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## Usage
+This code block above is suggested by AI (Claude), but this is just easier:
 
-### Basic Navigation
-1. Use the **Places** button to quickly jump to common directories
-2. Click path buttons to navigate to any parent directory
-3. Double-click folders to enter them, files to open with default application
-4. Use **Backspace** to go up one level
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python main.py
+```
 
-### File Management
-1. **Create**: Use toolbar buttons for new folders/files
-2. **Rename**: Right-click item → Rename
-3. **Delete**: Right-click item → Delete or Move to Trash
-4. **Properties**: Right-click item → Properties (or Alt+Enter)
+One can also run without a virtual environment. I recommend this because it makes the window looks nicer:
 
-### Advanced Usage
-1. **Multiple Tabs**: Ctrl+T for new tab, Ctrl+W to close
-2. **Quick Filter**: Start typing while list is focused to filter files
-3. **Sorting**: Click column headers to sort by Name, Size, or Modified date
-4. **Path Editing**: Ctrl+L to type a path directly
+```bash
+python3 main.py
+```
 
 ## System Requirements
 
@@ -96,12 +93,16 @@ python main.py
 - PyQt6
 - Standard Linux utilities: `xdg-open`, `gio` (for trash functionality)
 
-## Configuration
+## Installing the .desktop file
 
-Settings are automatically saved to `~/.config/litterbox/settings.json` and include:
-- Window size and position
-- Current sort column and order
-- Hidden file visibility preferences
+```bash
+cp litterbox.desktop ~/.local/share/applications/
+nano ~/.local/share/applications/litterbox.desktop
+```
+
+The example use `nano`, but use whatever you enjoy.
+
+Edit the `Exec` line to contain the absolute path to LitterBox/main.py. You might need to prefix the path with `python3`. For example  `python3 /absolute/path/to/LitterBox/main.py`
 
 ## Troubleshooting
 
