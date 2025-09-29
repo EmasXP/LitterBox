@@ -37,6 +37,7 @@ In fact, the remainder of this README is written by AI too:
 - **Persistent Settings**: Window size and sort preferences saved between sessions
 - **Sorting**: Click column headers to sort, persistent across directory navigation
 - **Filter Navigation**: Arrow keys work while filtering is active
+- **Live Auto-Refresh**: Open tabs automatically refresh when files/folders are created, removed, renamed or modified in the current directory (non‑recursive) using watchdog
 
 ### Keyboard Shortcuts
 - **Ctrl+L**: Toggle path edit mode
@@ -109,6 +110,12 @@ If you get import errors, ensure PyQt6 is installed:
 ```bash
 pip install PyQt6
 ```
+
+If automatic live refresh does not work, you may be missing the optional dependency:
+```bash
+pip install watchdog
+```
+Without watchdog the application still works; you'll just need to trigger refreshes via actions (they happen automatically after create/rename/delete operations already).
 
 ### Trash Functionality
 The app tries to use `gio trash` first, then falls back to `trash-cli`. Install one of these:

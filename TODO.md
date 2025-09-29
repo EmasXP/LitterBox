@@ -14,6 +14,7 @@ _Such empty_
   - Cancel running file copy (per progress bar)
   - Each progress bar shall contain some information about what's being copied
   - Update the view as files are being copied over, so the new files appear (and their file sizes are being increased)
+  - Maybe it's best to put all this in a new class/module, to make it easier to catch bugs
 
 # LOW
 

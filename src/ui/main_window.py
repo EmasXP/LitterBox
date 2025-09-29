@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QToolBar, QPushButton, QTabWidget, QLineEdit,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
                              QMenu, QDialog)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher
 from PyQt6.QtGui import QKeySequence, QShortcut, QAction
 from pathlib import Path
 import os
@@ -87,6 +87,22 @@ class FileTab(QWidget):
     def __init__(self, initial_path=None, parent=None):
         super().__init__(parent)
         self.current_path = initial_path or str(Path.home())
+        # Unique watch id (use object id to avoid collisions) for FileWatcherManager
+        self._watch_id = f"tab-{id(self)}"
+        # Qt native watcher (more reliable on some systems than watchdog alone)
+        self._dir_watcher = QFileSystemWatcher(self)
+        self._dir_watcher.directoryChanged.connect(self._on_directory_changed)
+        # Debounce timer for refresh
+        self._watch_refresh_timer = QTimer(self)
+        self._watch_refresh_timer.setSingleShot(True)
+        self._watch_refresh_timer.setInterval(250)
+        self._watch_refresh_timer.timeout.connect(self._on_debounced_refresh)
+        # Periodic polling fallback (in case native events miss something)
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(2000)  # 2s lightweight polling
+        self._poll_timer.timeout.connect(self._poll_refresh_if_needed)
+        self._poll_timer.start()
+        self._last_snapshot = set()
 
         self.setup_ui()
         self.setup_connections()
@@ -134,6 +150,14 @@ class FileTab(QWidget):
         if path_obj.exists() and path_obj.is_dir():
             self.current_path = str(path_obj.resolve())
             self.file_list.set_path(self.current_path)
+            # Update QFileSystemWatcher path list (single path per tab)
+            try:
+                existing_paths = self._dir_watcher.directories()
+                if existing_paths:
+                    self._dir_watcher.removePaths(existing_paths)
+                self._dir_watcher.addPath(self.current_path)
+            except Exception:
+                pass
             # Clear and hide filter when navigating to a new directory
             if self.filter_bar.isVisible():
                 self.filter_bar.hide_filter()
@@ -141,6 +165,43 @@ class FileTab(QWidget):
             self.path_changed.emit(self.current_path)
             # Ensure file list has focus for keyboard navigation
             self.file_list.setFocus()
+            # Record snapshot after navigation
+            self._update_snapshot()
+
+    def _on_debounced_refresh(self):
+        """Execute a refresh after debounce interval and update snapshot."""
+        self.file_list.refresh()
+        self._update_snapshot()
+
+    def _on_directory_changed(self, changed_path):
+        """Handle directory change events (debounced)."""
+        # Restart debounce timer unconditionally for reliability
+        self._watch_refresh_timer.start()
+        # Snapshot will be updated inside the debounced refresh handler
+
+    def _poll_refresh_if_needed(self):
+        """Periodic fallback to detect missed changes by comparing snapshots."""
+        if not self.current_path:
+            return
+        try:
+            from core.file_operations import FileOperations
+            entries = FileOperations.list_directory(self.current_path)
+            names = {e['name'] for e in entries}
+            if names != self._last_snapshot:
+                # Something changed that we didn't catch; refresh immediately
+                self.file_list.refresh()
+                self._last_snapshot = names
+        except Exception:
+            pass
+
+    def _update_snapshot(self):
+        try:
+            from core.file_operations import FileOperations
+            if self.current_path:
+                entries = FileOperations.list_directory(self.current_path)
+                self._last_snapshot = {e['name'] for e in entries}
+        except Exception:
+            pass
 
     def on_item_activated(self, path, is_directory):
         """Handle item activation (double-click or enter)"""
@@ -265,6 +326,7 @@ class FileTab(QWidget):
                 QMessageBox.warning(self, "Rename Failed", f"Could not rename item:\n{result}")
             else:
                 self.file_list.refresh()
+                self._update_snapshot()
 
     def move_to_trash(self, path):
         """Move item to trash"""
@@ -273,6 +335,7 @@ class FileTab(QWidget):
             QMessageBox.warning(self, "Trash Failed", f"Could not move to trash:\n{result}")
         else:
             self.file_list.refresh()
+            self._update_snapshot()
 
     def delete_item(self, path):
         """Delete item permanently"""
@@ -289,6 +352,7 @@ class FileTab(QWidget):
                 QMessageBox.warning(self, "Delete Failed", f"Could not delete item:\n{result}")
             else:
                 self.file_list.refresh()
+                self._update_snapshot()
 
     # Removed show_properties & show_open_with_dialog from FileTab; these live on MainWindow
 
@@ -377,6 +441,7 @@ class FileTab(QWidget):
                 QMessageBox.warning(self, "Create Folder Failed", f"Could not create folder:\n{result}")
             else:
                 self.file_list.refresh()
+                self._update_snapshot()
                 self.file_list.select_item_by_name(name)
 
     def create_new_file(self):
@@ -388,6 +453,7 @@ class FileTab(QWidget):
                 QMessageBox.warning(self, "Create File Failed", f"Could not create file:\n{result}")
             else:
                 self.file_list.refresh()
+                self._update_snapshot()
                 self.file_list.select_item_by_name(name)
 
 class MainWindow(QMainWindow):
@@ -530,7 +596,6 @@ class MainWindow(QMainWindow):
         if self.tab_widget.count() > 1:
             # Update recent tab order before closing
             self.update_recent_tab_order_on_close(index)
-
             self.tab_widget.removeTab(index)
             self.update_tab_visibility()
         # Don't close the last tab
