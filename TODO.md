@@ -5,7 +5,6 @@ _Such empty_
 # MEDIUM
 
 * Shift+Up/Down to select files/folders
-* Icons instead of buttons for "New folder" and "New file"
 * Padding between the path bar and the separator
 * Make the last button in the path bar (the current folder) more distinct. Maybe bold or an alternate background color.
 * Drag-and-drop

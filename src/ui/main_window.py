@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
                              QMenu, QDialog, QTabBar)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QEventLoop
-from PyQt6.QtGui import QKeySequence, QShortcut, QAction
+from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon
 from pathlib import Path
 import os
 
@@ -603,15 +603,28 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # New folder button
-        new_folder_btn = QPushButton("New Folder")
-        new_folder_btn.clicked.connect(self.create_new_folder)
-        toolbar.addWidget(new_folder_btn)
+        # New folder action (icon based)
+        # Try common theme names first, fallback to empty icon (text via tooltip only)
+        folder_icon = QIcon.fromTheme("folder-new")
+        if folder_icon.isNull():
+            folder_icon = QIcon.fromTheme("folder-create")
+        new_folder_action = QAction(folder_icon, "New Folder", self)
+        new_folder_action.setToolTip("Create new folder (Alt+Shift+N)")
+        new_folder_action.triggered.connect(self.create_new_folder)
+        toolbar.addAction(new_folder_action)
 
-        # New file button
-        new_file_btn = QPushButton("New File")
-        new_file_btn.clicked.connect(self.create_new_file)
-        toolbar.addWidget(new_file_btn)
+        # New file action (icon based)
+        file_icon = QIcon.fromTheme("document-new")
+        if file_icon.isNull():
+            file_icon = QIcon.fromTheme("text-x-generic")
+        new_file_action = QAction(file_icon, "New File", self)
+        new_file_action.setToolTip("Create new empty file (Ctrl+Shift+N)")
+        new_file_action.triggered.connect(self.create_new_file)
+        toolbar.addAction(new_file_action)
+
+        # Optional: add shortcuts for actions (keeping existing method-based shortcuts elsewhere if desired)
+        new_folder_action.setShortcut(QKeySequence("Alt+Shift+N"))
+        new_file_action.setShortcut(QKeySequence("Ctrl+Shift+N"))
 
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
