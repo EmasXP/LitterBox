@@ -45,7 +45,7 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
 - **Backspace**: Navigate to parent directory
 - **Alt+<**: Jump to first item in list (Emacs-style beginning)
 - **Alt+>**: Jump to last item in list (Emacs-style end)
-- **Esc**: Clear filter (when active)
+- **Esc**: Clear filter (when active) and exits path edit mode (if active)
 - **Ctrl+PageUp**: Select tab to the left
 - **Ctrl+PageDown**: Select tab to the right
 - **Ctrl+Tab**: Select previously used tab

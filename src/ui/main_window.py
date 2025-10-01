@@ -143,7 +143,8 @@ class FileTab(QWidget):
 
         # Connect parent navigation request
         self.file_list.parent_navigation_requested.connect(self.navigate_to_parent_and_select)
-
+        # Esc key in file list: hide filter bar (if visible) and ensure toolbar path navigator exits edit mode
+        self.file_list.escape_pressed.connect(self._on_file_list_escape)
         # Connect rename request from F2 key
         self.file_list.rename_requested.connect(self.rename_item)
 
@@ -477,6 +478,22 @@ class FileTab(QWidget):
                     # Only hide filter if navigating to a directory
                     if is_directory:
                         self.filter_bar.hide_filter()
+
+    def _on_file_list_escape(self):
+        """Handle Esc pressed while file list has focus.
+
+        Behavior: hide filter bar if visible and revert toolbar path navigator to button mode.
+        """
+        # Hide filter bar if it's visible
+        if self.filter_bar.isVisible():
+            self.filter_bar.hide_filter()
+        # Exit toolbar path edit mode if currently in edit
+        main_win = self.window()
+        # In context of FileTab, window() returns MainWindow; guard for tests.
+        if main_win and hasattr(main_win, 'toolbar_path_navigator'):
+            nav = getattr(main_win, 'toolbar_path_navigator')
+            if getattr(nav, 'edit_mode', False) and hasattr(nav, 'exit_edit_mode'):
+                nav.exit_edit_mode()
 
     def on_filter_requested(self, character):
         """Handle filter request from file list"""

@@ -106,6 +106,7 @@ class FileListView(QTreeView):
     rename_requested = pyqtSignal(str)  # path to rename
     filter_requested = pyqtSignal(str)  # character typed for filtering
     parent_navigation_requested = pyqtSignal(str, str)  # parent_path, folder_to_select
+    escape_pressed = pyqtSignal()  # emitted when Esc pressed while list has focus
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -516,6 +517,11 @@ class FileListView(QTreeView):
             elif txt == '>':
                 self._jump_to_end()
                 return
+        # Escape: custom behavior requested by main window (hide filter & exit path edit)
+        if event.key() == Qt.Key.Key_Escape:
+            # Emit signal so container (FileTab/MainWindow) can decide what to do.
+            self.escape_pressed.emit()
+            return
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
             # Enter: open selected item
             current_index = self.currentIndex()
