@@ -17,6 +17,7 @@ from core.file_operations import FileOperations
 from utils.settings import Settings
 from core.clipboard_manager import ClipboardManager
 from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
+from ui.rename_dialog import get_rename
 from typing import Optional, Any
 
 class FilterBar(QFrame):
@@ -372,12 +373,15 @@ class FileTab(QWidget):
             QMessageBox.warning(self, "Open With", "Main window does not provide Open With dialog.")
 
     def rename_item(self, path):
-        """Rename file or folder"""
-        current_name = os.path.basename(path)
-        new_name, ok = QInputDialog.getText(
-            self, "Rename", f"Rename '{current_name}' to:", text=current_name
-        )
+        """Rename file or folder.
 
+        Enhanced: pre-select only the base portion of the filename (excluding its first
+        extension segment) to reduce accidental extension editing. Multi-extension files
+        like ``archive.tar.gz`` select only ``archive``. Hidden files like ``.bashrc``
+        (no further dots) select the full name.
+        """
+        current_name = os.path.basename(path)
+        new_name, ok = get_rename(self, current_name)
         if ok and new_name and new_name != current_name:
             success, result = FileOperations.rename_item(path, new_name)
             if not success:
