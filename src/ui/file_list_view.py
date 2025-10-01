@@ -278,8 +278,21 @@ class FileListView(QTreeView):
         self.refresh()
 
     def refresh(self):
-        """Refresh the file listing"""
+        """Refresh the file listing preserving selection and scroll position."""
         had_focus = self.hasFocus()
+        # Capture current vertical scroll position & selected paths
+        vbar = self.verticalScrollBar() if hasattr(self, 'verticalScrollBar') else None
+        prev_scroll = vbar.value() if vbar else 0
+        prev_selected = set(self.get_selected_items()) if hasattr(self, 'get_selected_items') else set()
+        current_index_path = None
+        if self.currentIndex().isValid():
+            # Capture current item path for focused restoration preference
+            src_idx = self.proxy_model.mapToSource(self.currentIndex())
+            if src_idx.isValid():
+                item = self.source_model.item(src_idx.row(), 0)
+                if item:
+                    current_index_path = item.data(Qt.ItemDataRole.UserRole)
+
         # Save current widths before clearing (all three) for quick intra-refresh restore
         header = self.header()
         self._temp_all = None
@@ -303,30 +316,51 @@ class FileListView(QTreeView):
             name_item.setEditable(False)
             name_item.setData(entry['path'], Qt.ItemDataRole.UserRole)  # store path
             name_item.setData(entry['is_dir'], Qt.ItemDataRole.UserRole + 1)  # directory flag
-            # Assign themed / MIME icon with overlays
             try:
                 icon = self._icon_for_entry(entry)
                 if icon and not icon.isNull():
                     name_item.setIcon(icon)
             except Exception:
-                # Silent fallback, no icon
                 pass
-
             size_item = QStandardItem("" if entry['is_dir'] else FileOperations.format_size(entry['size']))
             size_item.setEditable(False)
-
             modified_item = QStandardItem("")
             modified_item.setEditable(False)
             if entry.get('modified') and isinstance(entry['modified'], datetime):
                 modified_str = entry['modified'].strftime("%Y-%m-%d %H:%M")
                 modified_item.setText(modified_str)
                 modified_item.setData(entry['modified'], Qt.ItemDataRole.UserRole)
-
             self.source_model.appendRow([name_item, size_item, modified_item])
 
-        # Sort
+        # Sort and update
         self.proxy_model.sort(self.sort_column, self.sort_order)
         self.update_sort_indicator()
+
+        # Restore selection
+        selection_model = self.selectionModel()
+        if selection_model and prev_selected:
+            selection_model.clearSelection()
+            flags = selection_model.SelectionFlag.Select | selection_model.SelectionFlag.Rows
+            preferred_index = None
+            for row in range(self.source_model.rowCount()):
+                item = self.source_model.item(row, 0)
+                if not item:
+                    continue
+                path = item.data(Qt.ItemDataRole.UserRole)
+                if path in prev_selected:
+                    src_index = self.source_model.index(row, 0)
+                    proxy_index = self.proxy_model.mapFromSource(src_index)
+                    if proxy_index.isValid():
+                        selection_model.select(proxy_index, flags)
+                        if current_index_path and path == current_index_path:
+                            preferred_index = proxy_index
+            # Restore current index preference (focused item) else first of selection
+            if preferred_index is None and selection_model.selectedRows():
+                preferred_index = selection_model.selectedRows()[0]
+            if preferred_index:
+                self.setCurrentIndex(preferred_index)
+
+        # If nothing selected after restore attempt, fallback to first
         self.select_first_item_if_none_selected()
 
         # Restore widths or use settings
@@ -334,9 +368,16 @@ class FileListView(QTreeView):
             self._apply_all_widths(self._temp_all)
         else:
             self.restore_column_widths()
+
+        # Defer scroll restoration until layout settles
+        def _restore_scroll():
+            if vbar:
+                # Clamp scroll value to new range
+                vbar.setValue(min(prev_scroll, vbar.maximum()))
+        QTimer.singleShot(30, _restore_scroll)
         QTimer.singleShot(60, self._fit_columns)
+
         if had_focus:
-            # Restore focus only if we owned it before refresh
             self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # ---------------- Deterministic Fit Algorithm ----------------

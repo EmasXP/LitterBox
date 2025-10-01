@@ -32,7 +32,7 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
   * Permissions editing
   * Open-with selection
 * Window and column sizes size are saved between sessions
-* Live auto-refresh: Open tabs automatically refresh when files/folders are created, removed, renamed or modified by another application
+* Live auto-refresh: Open tabs automatically refresh when files/folders are created, removed, renamed or modified by another application (now preserves current selection and scroll position)
 * Copy / Cut / Paste with conflict management, using `Ctrl+X`, `Ctrl+C` and `Ctrl+V`
 
 ### Keyboard Shortcuts
