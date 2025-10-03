@@ -4,7 +4,7 @@ Main window for the LitterBox file manager
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QToolBar, QPushButton, QTabWidget, QLineEdit,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
-                             QMenu, QDialog, QTabBar)
+                             QMenu, QDialog, QTabBar, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QEventLoop
 from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon
 from pathlib import Path
@@ -426,16 +426,57 @@ class FileTab(QWidget):
             self.clear_filter()
             return
 
+        # Store current selection before applying filter
+        current_selection = self.file_list.get_selected_items()
+        current_index_path = None
+        if self.file_list.currentIndex().isValid():
+            src_idx = self.file_list.proxy_model.mapToSource(self.file_list.currentIndex())
+            if src_idx.isValid():
+                item = self.file_list.source_model.item(src_idx.row(), 0)
+                if item:
+                    current_index_path = item.data(Qt.ItemDataRole.UserRole)
+
         # Apply filter through the proxy model using regex for partial matching
         from PyQt6.QtCore import QRegularExpression
         regex = QRegularExpression(filter_text, QRegularExpression.PatternOption.CaseInsensitiveOption)
         self.file_list.proxy_model.setFilterRegularExpression(regex)
 
-        # Select first visible item
+        # Try to restore selection, preserving current selection if possible
+        selection_restored = False
         if self.file_list.proxy_model.rowCount() > 0:
-            first_index = self.file_list.proxy_model.index(0, 0)
-            if first_index.isValid():
-                self.file_list.setCurrentIndex(first_index)
+            # Try to restore current index first
+            if current_index_path:
+                for row in range(self.file_list.proxy_model.rowCount()):
+                    proxy_index = self.file_list.proxy_model.index(row, 0)
+                    if proxy_index.isValid():
+                        src_index = self.file_list.proxy_model.mapToSource(proxy_index)
+                        if src_index.isValid():
+                            item = self.file_list.source_model.item(src_index.row(), 0)
+                            if item and item.data(Qt.ItemDataRole.UserRole) == current_index_path:
+                                self.file_list.setCurrentIndex(proxy_index)
+                                self.file_list.scrollTo(proxy_index, QAbstractItemView.ScrollHint.EnsureVisible)
+                                selection_restored = True
+                                break
+
+            # If current index wasn't found, try to restore any previous selection
+            if not selection_restored and current_selection:
+                for row in range(self.file_list.proxy_model.rowCount()):
+                    proxy_index = self.file_list.proxy_model.index(row, 0)
+                    if proxy_index.isValid():
+                        src_index = self.file_list.proxy_model.mapToSource(proxy_index)
+                        if src_index.isValid():
+                            item = self.file_list.source_model.item(src_index.row(), 0)
+                            if item and item.data(Qt.ItemDataRole.UserRole) in current_selection:
+                                self.file_list.setCurrentIndex(proxy_index)
+                                self.file_list.scrollTo(proxy_index, QAbstractItemView.ScrollHint.EnsureVisible)
+                                selection_restored = True
+                                break
+
+            # If no previous selection could be restored, select first visible item
+            if not selection_restored:
+                first_index = self.file_list.proxy_model.index(0, 0)
+                if first_index.isValid():
+                    self.file_list.setCurrentIndex(first_index)
 
     def clear_filter(self):
         """Clear the filter"""
@@ -443,8 +484,14 @@ class FileTab(QWidget):
         from PyQt6.QtCore import QRegularExpression
         self.file_list.proxy_model.setFilterRegularExpression(QRegularExpression(""))
 
-        # Select first item if none selected
-        self.file_list.select_first_item_if_none_selected()
+        # Select first item if none selected, or ensure current selection is visible
+        current_index = self.file_list.currentIndex()
+        if current_index.isValid():
+            # Ensure the current selection is visible after filter is cleared
+            self.file_list.ensure_current_selection_visible()
+        else:
+            # No selection, so select first item
+            self.file_list.select_first_item_if_none_selected()
 
         # Return focus to file list for keyboard navigation
         self.file_list.setFocus()

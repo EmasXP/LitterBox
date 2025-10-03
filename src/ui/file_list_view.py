@@ -844,3 +844,9 @@ class FileListView(QTreeView):
         painter.drawEllipse(0, 0, pm.width(), pm.height())
         painter.end()
         return pm
+
+    def ensure_current_selection_visible(self):
+        """Ensure the current selection is visible by scrolling to it if necessary"""
+        current_index = self.currentIndex()
+        if current_index.isValid():
+            self.scrollTo(current_index, QAbstractItemView.ScrollHint.EnsureVisible)

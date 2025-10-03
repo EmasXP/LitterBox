@@ -1,10 +1,18 @@
 # HIGH
 
-_Such empty_
+* Right click -> Properties, does not work
+* Properties of a folder: calculate disk usage
+  * Needs to be made in a different thread
+  * Show spinner while calculating
+  * Update numbers as sizes are being calculated
+* How come some `.py` files has a plain-text icon, and some has the Python logo?
 
 # MEDIUM
 
 * Shift+Up/Down to select files/folders
+  * Shift+PageUp/Down
+  * Shift+Home/End
+
 * Padding between the path bar and the separator
 * Make the last button in the path bar (the current folder) more distinct. Maybe bold or an alternate background color.
 * Drag-and-drop
@@ -12,6 +20,7 @@ _Such empty_
   * LitterBox to external application
   * External application to LitterBox
 * Paste: Folder conflict: Prevent overwrite if Source and Target is the same
+* When opening file, change CWD first
 
 # LOW
 
@@ -24,11 +33,13 @@ _Such empty_
   * Add option to browse a binary via a file picker
 * When renaming file: it would be nice if the file row was still selected after rename
 * The "raw" path bar (the text input one) could be wider
-* When opening file, change CWD first
 * Feels like our testing structure is wonky, there must be a better way
 * Close other tabs
 * Close tabs to the left/right
 * Middle-click to close tabs
 * Paste: Folder conflict: "Replace" option. Deletes the target and replaces it with the source. Important to check if Source and Target are the same here.
-* Rename: Pre-select the "hello" part of "hello.txt"
 * Clicking on folder in the path bar: Pre-select the used-to-be child
+* Alt+Up/Down to scroll
+* Cache "Open with..."? Or maybe cache wherever the source information comes from.
+* Ranked sorting of the candidates in the "Open with" dialog - the application(s) most likely to be correct shall be placed first. Not sure if possible, but worth a shot.
+* Application icons in the "Open with" dialog
