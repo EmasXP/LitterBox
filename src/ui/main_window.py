@@ -322,15 +322,6 @@ class FileTab(QWidget):
         if delete_action:
             delete_action.triggered.connect(lambda: self.delete_item(path))  # type: ignore[attr-defined]
 
-        menu.addSeparator()
-
-        # Properties
-        properties_action: QAction = menu.addAction("Properties")  # type: ignore[assignment]
-        if properties_action:
-            properties_action.triggered.connect(  # type: ignore[attr-defined]
-                lambda mw=main_window: mw.show_properties(path) if mw and hasattr(mw, 'show_properties') else None
-            )
-
         # Clipboard actions
         menu.addSeparator()
 
@@ -346,6 +337,10 @@ class FileTab(QWidget):
             if main_window and hasattr(main_window, 'paste_into_current'):
                 main_window.paste_into_current()
 
+        def _show_properties():
+            if main_window and hasattr(main_window, 'show_properties'):
+                main_window.show_properties(path)
+
         copy_action: QAction = menu.addAction("Copy")  # type: ignore[assignment]
         if copy_action:
             copy_action.triggered.connect(_do_copy)  # type: ignore[attr-defined]
@@ -355,6 +350,12 @@ class FileTab(QWidget):
         paste_action: QAction = menu.addAction("Paste")  # type: ignore[assignment]
         if paste_action:
             paste_action.triggered.connect(_do_paste)  # type: ignore[attr-defined]
+
+        # Properties (placed at the end)
+        menu.addSeparator()
+        properties_action: QAction = menu.addAction("Properties")  # type: ignore[assignment]
+        if properties_action:
+            properties_action.triggered.connect(_show_properties)  # type: ignore[attr-defined]
 
         menu.exec(position)
 
