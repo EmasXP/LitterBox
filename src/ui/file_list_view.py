@@ -111,6 +111,8 @@ class FileListView(QTreeView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_path = ""
+        self._selection_anchor = None  # Track the anchor point for shift+navigation selection
+        self._last_navigation_row = None  # Track the last position during shift navigation
 
         # Load sort preferences from settings
         from utils.settings import Settings
@@ -606,19 +608,24 @@ class FileListView(QTreeView):
         if not model or model.rowCount() == 0:
             return
 
-        # Store the current selection
-        old_index = current_index
+        # Check if Shift is held down for extending selection
+        shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+
+        # For navigation calculation, use the last navigation position if we're in the middle of shift navigation
+        navigation_start_row = current_index.row() if current_index.isValid() else 0
+        if shift_pressed and self._last_navigation_row is not None:
+            navigation_start_row = self._last_navigation_row
 
         # Calculate new index based on key pressed
         new_index = None
 
         if event.key() == Qt.Key.Key_Up:
-            if current_index.isValid() and current_index.row() > 0:
-                new_index = model.index(current_index.row() - 1, 0)
+            if navigation_start_row > 0:
+                new_index = model.index(navigation_start_row - 1, 0)
 
         elif event.key() == Qt.Key.Key_Down:
-            if current_index.isValid() and current_index.row() < model.rowCount() - 1:
-                new_index = model.index(current_index.row() + 1, 0)
+            if navigation_start_row < model.rowCount() - 1:
+                new_index = model.index(navigation_start_row + 1, 0)
             elif not current_index.isValid():
                 # If no selection, select first item
                 new_index = model.index(0, 0)
@@ -626,20 +633,14 @@ class FileListView(QTreeView):
         elif event.key() == Qt.Key.Key_PageUp:
             # Move up by the number of visible rows
             visible_rows = self._get_visible_row_count()
-            if current_index.isValid():
-                new_row = max(0, current_index.row() - visible_rows)
-                new_index = model.index(new_row, 0)
-            else:
-                new_index = model.index(0, 0)
+            new_row = max(0, navigation_start_row - visible_rows)
+            new_index = model.index(new_row, 0)
 
         elif event.key() == Qt.Key.Key_PageDown:
             # Move down by the number of visible rows
             visible_rows = self._get_visible_row_count()
-            if current_index.isValid():
-                new_row = min(model.rowCount() - 1, current_index.row() + visible_rows)
-                new_index = model.index(new_row, 0)
-            else:
-                new_index = model.index(0, 0)
+            new_row = min(model.rowCount() - 1, navigation_start_row + visible_rows)
+            new_index = model.index(new_row, 0)
 
         elif event.key() == Qt.Key.Key_Home:
             # Move to first item
@@ -651,8 +652,73 @@ class FileListView(QTreeView):
 
         # Apply the new selection and ensure it's visible
         if new_index and new_index.isValid():
-            self.setCurrentIndex(new_index)
+            if shift_pressed:
+                # Extend selection from anchor to new position
+                if self._selection_anchor is None:
+                    # First shift navigation - set anchor to current position
+                    self._selection_anchor = current_index.row() if current_index.isValid() else 0
+                self._extend_selection_to_index(new_index)
+                self._last_navigation_row = new_index.row()
+            else:
+                # Normal navigation - just move current index and reset anchor
+                super().setCurrentIndex(new_index)  # Use super to avoid double anchor setting
+                self._selection_anchor = new_index.row()  # Set new anchor for future shift selections
+                self._last_navigation_row = new_index.row()
             self.scrollTo(new_index, QAbstractItemView.ScrollHint.EnsureVisible)
+
+    def _extend_selection_to_index(self, target_index):
+        """Extend the selection from the current anchor to the target index"""
+        selection_model = self.selectionModel()
+        if not selection_model or not target_index.isValid():
+            return
+
+        # Get the model for row calculations
+        model = self.model()
+        if not model:
+            return
+
+        # The anchor should already be set by the caller
+        if self._selection_anchor is None:
+            print("Warning: No anchor set for selection extension")
+            return
+
+        # Determine the range to select
+        anchor_row = self._selection_anchor
+        target_row = target_index.row()
+
+        # Ensure we have a valid range
+        start_row = min(anchor_row, target_row)
+        end_row = max(anchor_row, target_row)
+
+        # Clear current selection and select the range
+        selection_model.clearSelection()
+
+        # Select all items in the range
+        for row in range(start_row, end_row + 1):
+            index = model.index(row, 0)
+            if index.isValid():
+                selection_model.select(index, selection_model.SelectionFlag.Select | selection_model.SelectionFlag.Rows)
+
+        # Set the target as the current index (focused item) - but this might be affecting selection
+        # Let's try setting it differently
+        selection_model.setCurrentIndex(target_index, selection_model.SelectionFlag.NoUpdate)
+
+    def mousePressEvent(self, e):
+        """Handle mouse press events to reset selection anchor"""
+        super().mousePressEvent(e)
+
+        # Reset selection anchor when clicking (not shift-clicking)
+        if not (e.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            current_index = self.currentIndex()
+            if current_index.isValid():
+                self._selection_anchor = current_index.row()
+
+    def setCurrentIndex(self, index):
+        """Override to update selection anchor when current index changes programmatically"""
+        super().setCurrentIndex(index)
+        # Update anchor when setting current index programmatically (not during shift selection)
+        if index.isValid():
+            self._selection_anchor = index.row()
 
     def _jump_to_beginning(self):
         model = self.model()

@@ -1,6 +1,5 @@
 # HIGH
 
-* Right click -> Properties, does not work
 * Properties of a folder: calculate disk usage
   * Needs to be made in a different thread
   * Show spinner while calculating
@@ -8,10 +7,6 @@
 * How come some `.py` files has a plain-text icon, and some has the Python logo?
 
 # MEDIUM
-
-* Shift+Up/Down to select files/folders
-  * Shift+PageUp/Down
-  * Shift+Home/End
 
 * Padding between the path bar and the separator
 * Make the last button in the path bar (the current folder) more distinct. Maybe bold or an alternate background color.
@@ -33,6 +28,7 @@
   * Add option to browse a binary via a file picker
 * When renaming file: it would be nice if the file row was still selected after rename
 * The "raw" path bar (the text input one) could be wider
+* Some test files are not proper test files, it seems like (at least test_copy_paste.py isn't)
 * Feels like our testing structure is wonky, there must be a better way
 * Close other tabs
 * Close tabs to the left/right
