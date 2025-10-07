@@ -1,9 +1,5 @@
 # HIGH
 
-* Properties of a folder: calculate disk usage
-  * Needs to be made in a different thread
-  * Show spinner while calculating
-  * Update numbers as sizes are being calculated
 * How come some `.py` files has a plain-text icon, and some has the Python logo?
 
 # MEDIUM
