@@ -4,19 +4,17 @@
 
 # MEDIUM
 
-* Padding between the path bar and the separator
-* Make the last button in the path bar (the current folder) more distinct. Maybe bold or an alternate background color.
 * Drag-and-drop
   * Files to folder
   * LitterBox to external application
   * External application to LitterBox
 * Paste: Folder conflict: Prevent overwrite if Source and Target is the same
 * When opening file, change CWD first
+* Clicking on folder in the path bar: Pre-select the used-to-be child
 
 # LOW
 
 * Show "[folder name] [long dash] LitterBox" in the Application title bar
-* More rounding on the path buttons?
 * When deep in tree, the path bar does not fit well
 * Filter in "Open with..." dialog
 * "Open with..." "Other application"
@@ -30,8 +28,9 @@
 * Close tabs to the left/right
 * Middle-click to close tabs
 * Paste: Folder conflict: "Replace" option. Deletes the target and replaces it with the source. Important to check if Source and Target are the same here.
-* Clicking on folder in the path bar: Pre-select the used-to-be child
 * Alt+Up/Down to scroll
 * Cache "Open with..."? Or maybe cache wherever the source information comes from.
 * Ranked sorting of the candidates in the "Open with" dialog - the application(s) most likely to be correct shall be placed first. Not sure if possible, but worth a shot.
 * Application icons in the "Open with" dialog
+* Mount and unmount drives
+* Network locations

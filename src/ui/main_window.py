@@ -665,10 +665,17 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Path navigator in toolbar
+        # Path navigator in toolbar (wrap in a container to add padding away from separators)
+        from PyQt6.QtWidgets import QHBoxLayout as _QHBoxLayout, QWidget as _QWidget
+        nav_container = _QWidget()
+        nav_layout = _QHBoxLayout(nav_container)
+        # Left/right margins create visual breathing room from the separators
+        nav_layout.setContentsMargins(5, 0, 5, 0)
+        nav_layout.setSpacing(0)
         self.toolbar_path_navigator = PathNavigator()
         self.toolbar_path_navigator.path_changed.connect(self.navigate_current_tab_to_path)
-        toolbar.addWidget(self.toolbar_path_navigator)
+        nav_layout.addWidget(self.toolbar_path_navigator)
+        toolbar.addWidget(nav_container)
 
         toolbar.addSeparator()
 

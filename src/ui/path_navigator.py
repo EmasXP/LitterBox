@@ -58,7 +58,8 @@ class PathNavigator(QWidget):
         parts = self.current_path.parts
         current_path_parts = []
 
-        for part in parts:
+        total_parts = len(parts)
+        for idx, part in enumerate(parts):
             current_path_parts.append(part)
             button_path = Path(*current_path_parts)
 
@@ -70,23 +71,52 @@ class PathNavigator(QWidget):
 
             button = QPushButton(button_text)
             button.setFlat(True)
+            button.setProperty("pathRole", "segment")
             button.setStyleSheet("""
                 QPushButton {
-                    border: 1px solid #ccc;
+                    border: 1px solid palette(mid);
                     padding: 4px 8px;
-                    margin: 1px;
-                    background-color: #f5f5f5;
+                    margin: 0px;
                 }
-                QPushButton:hover {
-                    background-color: #e5e5e5;
+                QPushButton[pathRole="segment"] {
+                    background-color: palette(button);
                 }
-                QPushButton:pressed {
-                    background-color: #d5d5d5;
+                QPushButton[pathRole="segment"]:hover {
+                    background-color: palette(light);
+                    border: 1px solid palette(highlight);
+                }
+                QPushButton[pathRole="segment"]:pressed {
+                    background-color: palette(midlight);
+                }
+                QPushButton[pathRole="segment"]:focus {
+                    border: 1px solid palette(highlight);
+                    background-color: palette(light);
+                    outline: none;
+                }
+                /* Current (last) path segment styling */
+                QPushButton[pathRole="current"] {
+                    font-weight: bold;
+                    background-color: palette(window);
+                    color: palette(windowText);
+                }
+                QPushButton[pathRole="current"]:hover {
+                    /* Keep it stable on hover so it feels selected */
+                    background-color: palette(window);
+                }
+                QPushButton[pathRole="current"]:pressed {
+                    background-color: palette(window);
                 }
             """)
 
             # Store the full path for this button
-            button.clicked.connect(lambda checked, p=str(button_path): self.navigate_to_path(p))
+            is_last = (idx == total_parts - 1)
+            if is_last:
+                button.setProperty("pathRole", "current")
+                # Prevent navigation while leaving the button enabled (no-op)
+                button.clicked.connect(lambda checked: None)
+            else:
+                button.clicked.connect(lambda checked, p=str(button_path): self.navigate_to_path(p))
+
             self.button_layout.addWidget(button)
 
     def navigate_to_path(self, path):
