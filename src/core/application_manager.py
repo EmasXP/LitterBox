@@ -150,9 +150,49 @@ class ApplicationManager:
         return 'application/octet-stream'
 
     def get_default_application(self, file_path: str) -> Optional[DesktopApplication]:
-        """Get the default application for a file"""
+        """Get the default application for a file.
+
+        Enhanced with intelligent fallback:
+        1. First try explicit system default for exact MIME type
+        2. If no default, try fallback MIME types (e.g. text/plain for text/*)
+        3. Finally, use highest-ranked application from our heuristic system
+        """
         mime_type = self.get_mime_type(file_path)
 
+        # Try explicit system default first
+        app = self._get_system_default_for_mime_type(mime_type)
+        if app:
+            return app
+
+        # Enhanced fallback logic for common MIME type families
+        primary_type = mime_type.split('/')[0]
+
+        # For text/* files, try text/plain as fallback
+        if primary_type == 'text' and mime_type != 'text/plain':
+            app = self._get_system_default_for_mime_type('text/plain')
+            if app:
+                return app
+
+        # For application/* that might be text-based (like application/json, application/javascript)
+        # try text/plain as fallback too
+        text_like_apps = {
+            'application/json', 'application/javascript', 'application/xml',
+            'application/yaml', 'application/x-yaml'
+        }
+        if mime_type in text_like_apps:
+            app = self._get_system_default_for_mime_type('text/plain')
+            if app:
+                return app
+
+        # Final fallback: use highest-ranked application from our heuristic system
+        ranked_apps = self.get_ranked_applications_for_file(file_path)
+        if ranked_apps:
+            return ranked_apps[0]
+
+        return None
+
+    def _get_system_default_for_mime_type(self, mime_type: str) -> Optional[DesktopApplication]:
+        """Get the system's explicit default application for a MIME type"""
         try:
             # Query xdg-mime for default application
             result = subprocess.run(
