@@ -36,3 +36,4 @@
 * Compress/uncompress
 * Rename: Option to choose auto name: "example (1).txt", "example.bak1"
 * Ctrl+Shift+PageUp/PageDown to move the current tab
+* Paste: Select the pasted file(s) afterwards?

@@ -29,7 +29,7 @@ class DesktopApplication:
     def _parse_desktop_file(self):
         """Parse the .desktop file"""
         try:
-            config = configparser.ConfigParser(interpolation=None)
+            config = configparser.ConfigParser(interpolation=None, strict=False)
             # Read with UTF-8 encoding and handle special characters
             config.read(self.path, encoding='utf-8')
 
@@ -63,9 +63,60 @@ class DesktopApplication:
             if categories_str:
                 self.categories = [cat.strip() for cat in categories_str.split(';') if cat.strip()]
 
+        except (configparser.DuplicateOptionError, configparser.Error):
+            # Handle parsing errors by parsing manually
+            self._parse_desktop_file_manual()
         except Exception as e:
             # If parsing fails, leave fields empty
             # Suppress common parsing errors for invalid desktop files
+            pass
+
+    def _parse_desktop_file_manual(self):
+        """Manual parsing for problematic desktop files"""
+        try:
+            with open(self.path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            in_desktop_entry = False
+            for line in lines:
+                line = line.strip()
+
+                if line == '[Desktop Entry]':
+                    in_desktop_entry = True
+                    continue
+                elif line.startswith('[') and line.endswith(']'):
+                    in_desktop_entry = False
+                    continue
+
+                if not in_desktop_entry or not line or line.startswith('#'):
+                    continue
+
+                if '=' not in line:
+                    continue
+
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+
+                if key == 'Name' and not self.name:
+                    self.name = value
+                elif key == 'Exec' and not self.exec_command:
+                    self.exec_command = value
+                elif key == 'Icon' and not self.icon:
+                    self.icon = value
+                elif key == 'NoDisplay' and not hasattr(self, '_no_display_set'):
+                    self.no_display = value.lower() in ['true', '1', 'yes']
+                    self._no_display_set = True
+                elif key == 'Hidden' and not hasattr(self, '_hidden_set'):
+                    self.hidden = value.lower() in ['true', '1', 'yes']
+                    self._hidden_set = True
+                elif key == 'MimeType' and not self.mime_types:
+                    self.mime_types = [mt.strip() for mt in value.split(';') if mt.strip()]
+                elif key == 'Categories' and not self.categories:
+                    self.categories = [cat.strip() for cat in value.split(';') if cat.strip()]
+
+        except Exception:
+            # If manual parsing also fails, leave fields empty
             pass
 
     def can_handle_mime_type(self, mime_type: str) -> bool:
@@ -74,7 +125,7 @@ class DesktopApplication:
 
     def should_be_visible(self) -> bool:
         """Check if this application should be visible in menus"""
-        return bool(not (self.no_display or self.hidden) and self.name and self.exec_command)
+        return bool(not self.hidden and self.name and self.exec_command)
 
     def get_command_for_file(self, file_path: str) -> List[str]:
         """Get the command to run this application with the given file"""
@@ -249,18 +300,65 @@ class ApplicationManager:
                 if variant not in mime_types:
                     mime_types.append(variant)
 
-        # Handle image formats - some apps support multiple related formats
-        if primary_type == 'image':
-            # Add generic image/* for viewers that handle multiple formats
-            generic_image = 'image/*'
-            if generic_image not in mime_types:
-                mime_types.append(generic_image)
+        # Handle PDF and document formats
+        if primary_mime == 'application/pdf':
+            pdf_variants = [
+                'application/x-pdf',
+                'application/x-bzpdf',
+                'application/x-gzpdf'
+            ]
+            for variant in pdf_variants:
+                if variant not in mime_types:
+                    mime_types.append(variant)
 
-        # Handle video/audio formats similarly
-        if primary_type in ['video', 'audio']:
-            generic_media = f'{primary_type}/*'
-            if generic_media not in mime_types:
-                mime_types.append(generic_media)
+        # Handle image formats - add common related formats
+        if primary_type == 'image':
+            common_image_formats = {
+                'image/jpeg': ['image/jpg'],
+                'image/png': [],
+                'image/gif': [],
+                'image/webp': ['image/png'],  # Fallback for compatibility
+                'image/bmp': ['image/x-bmp'],
+                'image/tiff': ['image/tif'],
+                'image/svg+xml': ['image/svg'],
+            }
+            if primary_mime in common_image_formats:
+                for variant in common_image_formats[primary_mime]:
+                    if variant not in mime_types:
+                        mime_types.append(variant)
+
+        # Handle video formats - add common related formats
+        if primary_type == 'video':
+            common_video_formats = {
+                'video/mp4': ['video/mpeg4'],
+                'video/avi': ['video/x-avi', 'video/msvideo'],
+                'video/quicktime': ['video/mov'],
+                'video/x-msvideo': ['video/avi'],
+                'video/webm': [],
+                'video/mkv': ['video/x-matroska'],
+                'video/x-matroska': ['video/mkv'],
+            }
+            if primary_mime in common_video_formats:
+                for variant in common_video_formats[primary_mime]:
+                    if variant not in mime_types:
+                        mime_types.append(variant)
+
+        # Handle audio formats - add common related formats
+        if primary_type == 'audio':
+            common_audio_formats = {
+                'audio/mpeg': ['audio/mp3', 'audio/x-mp3'],
+                'audio/mp3': ['audio/mpeg'],
+                'audio/ogg': ['audio/x-ogg'],
+                'audio/wav': ['audio/x-wav', 'audio/wave'],
+                'audio/vnd.wave': ['audio/wav', 'audio/x-wav'],
+                'audio/flac': ['audio/x-flac'],
+                'audio/aac': ['audio/x-aac'],
+                'audio/x-ms-wma': ['audio/wma'],
+            }
+            if primary_mime in common_audio_formats:
+                for variant in common_audio_formats[primary_mime]:
+                    if variant not in mime_types:
+                        mime_types.append(variant)
 
         return mime_types
 
