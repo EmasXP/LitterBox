@@ -111,19 +111,27 @@ class DesktopApplication:
 class ApplicationManager:
     """Manages desktop applications and MIME types.
 
-    Improvements vs initial implementation:
-    - Ranking & heuristic expansion: For certain MIME families (e.g. text/*) also
-        propose apps that handle generic text/plain when specific subtype list is small.
-    - Office documents: If ODF document types return very few matches, also include
-        Office / WordProcessor category apps that can generally handle them.
-    - Dependency injection of extra desktop directories (useful for testing) to allow
-        constructing ephemeral .desktop files without touching system paths.
+    Enhanced implementation with intelligent MIME type expansion and ranking:
+
+    Key Features:
+    - Intelligent MIME type fallback system via _get_mime_types_for_file()
+    - Prioritizes XDG system defaults in application ranking
+    - Handles text-like application/* files (e.g., application/x-php) with text/plain fallbacks
+    - Enhanced support for OpenDocument and Microsoft Office formats
+    - Smart application ranking based on MIME type priority and system defaults
+
+    The system works by:
+    1. Determining a primary MIME type for a file
+    2. Generating logical fallback MIME types (e.g., text/plain for text-like files)
+    3. Querying applications for all MIME types in priority order
+    4. Ranking applications with XDG defaults getting highest priority
+    5. Using heuristics for better application discovery (editor detection, etc.)
     """
 
     def __init__(self, extra_desktop_dirs: Optional[Iterable[str]] = None):
             self._applications_cache: Optional[List[DesktopApplication]] = None
             self._mime_cache: Dict[str, List[DesktopApplication]] = {}
-            self._rank_cache: Dict[Tuple[str, Optional[str]], List[DesktopApplication]] = {}
+            self._rank_cache: Dict[Tuple, List[DesktopApplication]] = {}
             self._extra_desktop_dirs = list(extra_desktop_dirs) if extra_desktop_dirs else []
             mimetypes.init()
 
@@ -149,38 +157,125 @@ class ApplicationManager:
         # Default fallback
         return 'application/octet-stream'
 
+    def _get_mime_types_for_file(self, file_path: str) -> List[str]:
+        """Get an ordered list of MIME types for a file.
+
+        Returns a list starting with the primary MIME type, followed by logical
+        fallbacks that applications might also support. This enables more
+        intelligent application discovery and ranking.
+
+        Args:
+            file_path: Path to the file to analyze
+
+        Returns:
+            List of MIME types in priority order (most specific first)
+        """
+        primary_mime = self.get_mime_type(file_path)
+        mime_types = [primary_mime]
+
+        # Parse the MIME type components
+        if '/' in primary_mime:
+            primary_type, sub_type = primary_mime.split('/', 1)
+        else:
+            return mime_types
+
+        # Handle text/* files - most should also work with text/plain applications
+        if primary_type == 'text':
+            if primary_mime != 'text/plain':
+                mime_types.append('text/plain')
+
+        # Handle known text-like application/* MIME types
+        text_like_apps = {
+            'application/json': ['text/json', 'text/plain'],
+            'application/javascript': ['text/javascript', 'text/plain'],
+            'application/xml': ['text/xml', 'text/plain'],
+            'application/yaml': ['text/yaml', 'text/x-yaml', 'text/plain'],
+            'application/x-yaml': ['application/yaml', 'text/yaml', 'text/plain'],
+            'application/x-php': ['text/php', 'text/x-php', 'application/php', 'text/plain'],
+            'application/x-python': ['text/python', 'text/x-python', 'text/plain'],
+            'application/x-ruby': ['text/ruby', 'text/x-ruby', 'text/plain'],
+            'application/x-perl': ['text/perl', 'text/x-perl', 'text/plain'],
+            'application/x-shellscript': ['text/x-shellscript', 'application/x-sh', 'text/plain'],
+            'application/x-sh': ['text/x-shellscript', 'application/x-shellscript', 'text/plain'],
+            'application/x-powershell': ['text/x-powershell', 'text/plain'],
+        }
+
+        if primary_mime in text_like_apps:
+            for fallback in text_like_apps[primary_mime]:
+                if fallback not in mime_types:
+                    mime_types.append(fallback)
+
+        # Handle OpenDocument formats - add related ODF variants
+        if primary_mime.startswith('application/vnd.oasis.opendocument'):
+            base_parts = primary_mime.split('.')
+            if len(base_parts) >= 4:
+                # For odt files, also try related text document formats
+                if 'text' in base_parts[-1]:
+                    odf_variants = [
+                        'application/vnd.oasis.opendocument.text',
+                        'application/vnd.oasis.opendocument.text-template',
+                        'application/vnd.oasis.opendocument.text-master',
+                        'application/x-extension-odt',
+                        'application/x-extension-ott'
+                    ]
+                    for variant in odf_variants:
+                        if variant != primary_mime and variant not in mime_types:
+                            mime_types.append(variant)
+
+        # Handle Microsoft Office formats
+        office_mappings = {
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [
+                'application/msword', 'application/x-doc'
+            ],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [
+                'application/vnd.ms-excel', 'application/x-excel'
+            ],
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation': [
+                'application/vnd.ms-powerpoint', 'application/x-powerpoint'
+            ],
+            'application/msword': [
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            ],
+            'application/vnd.ms-excel': [
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ],
+            'application/vnd.ms-powerpoint': [
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+            ],
+        }
+
+        if primary_mime in office_mappings:
+            for variant in office_mappings[primary_mime]:
+                if variant not in mime_types:
+                    mime_types.append(variant)
+
+        # Handle image formats - some apps support multiple related formats
+        if primary_type == 'image':
+            # Add generic image/* for viewers that handle multiple formats
+            generic_image = 'image/*'
+            if generic_image not in mime_types:
+                mime_types.append(generic_image)
+
+        # Handle video/audio formats similarly
+        if primary_type in ['video', 'audio']:
+            generic_media = f'{primary_type}/*'
+            if generic_media not in mime_types:
+                mime_types.append(generic_media)
+
+        return mime_types
+
     def get_default_application(self, file_path: str) -> Optional[DesktopApplication]:
         """Get the default application for a file.
 
-        Enhanced with intelligent fallback:
-        1. First try explicit system default for exact MIME type
-        2. If no default, try fallback MIME types (e.g. text/plain for text/*)
-        3. Finally, use highest-ranked application from our heuristic system
+        Uses the new MIME type expansion system to find defaults. Tries each
+        MIME type from _get_mime_types_for_file() in order until a system
+        default is found via xdg-mime.
         """
-        mime_type = self.get_mime_type(file_path)
+        mime_types = self._get_mime_types_for_file(file_path)
 
-        # Try explicit system default first
-        app = self._get_system_default_for_mime_type(mime_type)
-        if app:
-            return app
-
-        # Enhanced fallback logic for common MIME type families
-        primary_type = mime_type.split('/')[0]
-
-        # For text/* files, try text/plain as fallback
-        if primary_type == 'text' and mime_type != 'text/plain':
-            app = self._get_system_default_for_mime_type('text/plain')
-            if app:
-                return app
-
-        # For application/* that might be text-based (like application/json, application/javascript)
-        # try text/plain as fallback too
-        text_like_apps = {
-            'application/json', 'application/javascript', 'application/xml',
-            'application/yaml', 'application/x-yaml'
-        }
-        if mime_type in text_like_apps:
-            app = self._get_system_default_for_mime_type('text/plain')
+        # Try each MIME type in priority order to find a system default
+        for mime_type in mime_types:
+            app = self._get_system_default_for_mime_type(mime_type)
             if app:
                 return app
 
@@ -238,105 +333,116 @@ class ApplicationManager:
         return apps
 
     def get_applications_for_file(self, file_path: str) -> List[DesktopApplication]:
-        """Backward compatible: returns ONLY exact MIME matches for the file."""
-        mime_type = self.get_mime_type(file_path)
-        return self.get_applications_for_mime_type(mime_type)
+        """Get applications that can handle a file.
+
+        Now enhanced to use the MIME type expansion system, returning all
+        applications that support any of the file's MIME types.
+        """
+        mime_types = self._get_mime_types_for_file(file_path)
+        all_apps = set()
+
+        for mime_type in mime_types:
+            apps = self.get_applications_for_mime_type(mime_type)
+            all_apps.update(apps)
+
+        # Return sorted by name for consistency
+        return sorted(all_apps, key=lambda a: a.name.lower())
 
     # --- Enhanced ranking / heuristic discovery ---------------------------------
     def get_ranked_applications_for_file(self, file_path: str) -> List[DesktopApplication]:
-        """Return a richer, ranked list of suitable applications.
+        """Return a ranked list of suitable applications using the new MIME type system.
 
         Strategy:
-        1. Start with exact MIME matches.
-        2. If result set is small, expand with heuristics:
-           - text/* files: include apps advertising text/plain or other text/* subtypes.
-           - ODF documents (application/vnd.oasis.opendocument.*): include Office / WordProcessor
-             category apps that advertise ANY ODF text/document MIME.
-        3. Score apps (higher = better):
-           +50 exact match
-           +15 same primary type (e.g. text/) match of any subtype
-           +20 generic text/plain when file is text/* and no exact support
-           +15 Office category for ODF docs
-           +5  Editor heuristic (exec contains one of known editor names) for text/*
-        4. Stable sort by (-score, name). Deduplicate while preserving highest score.
+        1. Get the ordered list of MIME types for the file using _get_mime_types_for_file()
+        2. Query applications for each MIME type in the list
+        3. Score applications based on:
+           - +100: XDG system default for any of the MIME types
+           - +50: Exact match for primary MIME type
+           - +30: Match for secondary MIME type (first fallback)
+           - +15: Match for tertiary MIME type (subsequent fallbacks)
+           - +10: Office category for office documents
+           - +5: Editor heuristic for text files
+        4. Sort by score (descending) then by name, deduplicating while preserving highest score
         """
-        mime_type = self.get_mime_type(file_path)
+        mime_types = self._get_mime_types_for_file(file_path)
+        if not mime_types:
+            return []
+
+        primary_mime = mime_types[0]
         file_ext = os.path.splitext(file_path)[1].lower()
-        cache_key = (mime_type, file_ext)
+        cache_key = (primary_mime, file_ext, tuple(mime_types))
+
         if cache_key in self._rank_cache:
             return self._rank_cache[cache_key]
 
-        primary = mime_type.split('/')[0]
-        exact_apps = {app.path: app for app in self.get_applications_for_mime_type(mime_type)}
-        all_apps = self._get_all_applications()
-
-        # Build candidate set (start with exact)
+        # Build candidate set with scoring
         candidates: Dict[str, Tuple[DesktopApplication, int]] = {}
+        all_apps = self._get_all_applications()
 
         def add_with_score(app: DesktopApplication, score: int):
             prev = candidates.get(app.path)
             if prev is None or score > prev[1]:  # keep best score
                 candidates[app.path] = (app, score)
 
-        # Seed with exact matches
-        for app in exact_apps.values():
-            add_with_score(app, 50)
+        # Check for XDG system defaults for any MIME type
+        default_apps = {}
+        for i, mime_type in enumerate(mime_types):
+            default_app = self._get_system_default_for_mime_type(mime_type)
+            if default_app and default_app.path not in default_apps:
+                default_apps[default_app.path] = (default_app, i)
 
-        # Heuristics triggers
-        is_text = primary == 'text'
-        is_odf = mime_type.startswith('application/vnd.oasis.opendocument')
-        # Collect family of ODF text mime variants we consider equivalent for ranking
-        odf_related = set()
-        if is_odf:
-            base_parts = mime_type.split('.')[:4]  # ['application/vnd', 'oasis', 'opendocument', 'text']
-            if len(base_parts) >= 4:
-                # Accept any application/vnd.oasis.opendocument.* where last token in {'text','text-template'}
-                odf_related.update([
-                    'application/vnd.oasis.opendocument.text',
-                    'application/vnd.oasis.opendocument.text-template',
-                    'application/vnd.oasis.opendocument.text-master'
-                ])
-            # Some apps (older) might advertise generic OO mime or x-extension
-            odf_related.update([
-                'application/x-extension-odt',
-                'application/x-extension-ott'
-            ])
-
-        # Examine all apps for heuristic inclusion
-        editor_name_tokens = self._get_editor_exec_tokens()
-
+        # Score applications based on MIME type matches
         for app in all_apps:
             if not app.should_be_visible():
                 continue
-            mt_set = set(app.mime_types)
-            score = 0
-            if mime_type in mt_set:
-                # already added as exact -> skip (will merge scoring below)
-                continue
 
-            # Same primary type (e.g. any text/* when file is text/x-python)
-            if is_text and any(mt.startswith('text/') for mt in mt_set):
-                score += 15
-            # Generic text/plain support bonus (esp if extension is typical code file)
-            if is_text and 'text/plain' in mt_set:
-                score += 20
-            # Office category & related mime bonus for ODF documents
-            if is_odf:
-                if (('Office' in app.categories) or ('WordProcessor' in app.categories)):
-                    score += 10
-                if odf_related.intersection(mt_set):
-                    score += 10
-            # Editor heuristic (use Exec field name tokens)
-            if is_text:
+            max_score = 0
+            mt_set = set(app.mime_types)
+
+            # Check if this app is a system default
+            if app.path in default_apps:
+                max_score = max(max_score, 100)
+
+            # Score based on MIME type priority
+            for i, mime_type in enumerate(mime_types):
+                if mime_type in mt_set:
+                    if i == 0:  # Primary MIME type
+                        max_score = max(max_score, 50)
+                    elif i == 1:  # First fallback
+                        max_score = max(max_score, 30)
+                    else:  # Subsequent fallbacks
+                        max_score = max(max_score, 15)
+
+            # Additional heuristic bonuses
+            primary_type = primary_mime.split('/')[0] if '/' in primary_mime else ''
+
+            # Office category bonus for office documents
+            if primary_mime.startswith(('application/vnd.oasis.opendocument',
+                                      'application/vnd.openxmlformats-officedocument',
+                                      'application/msword', 'application/vnd.ms-')):
+                if ('Office' in app.categories) or ('WordProcessor' in app.categories):
+                    max_score = max(max_score, max_score + 10)
+
+            # Editor heuristic bonus for text files
+            if primary_type == 'text' or primary_mime in [
+                'application/json', 'application/javascript', 'application/xml',
+                'application/x-php', 'application/x-python'
+            ]:
+                editor_tokens = self._get_editor_exec_tokens()
                 exec_base = os.path.basename(app.exec_command.split()[0]) if app.exec_command else ''
                 lowered = exec_base.lower()
-                if any(tok in lowered for tok in editor_name_tokens):
-                    score += 5
-            if score > 0:
-                add_with_score(app, score)
+                if any(tok in lowered for tok in editor_tokens):
+                    max_score = max(max_score, max_score + 5)
+
+            if max_score > 0:
+                add_with_score(app, max_score)
 
         # Build ranked list
-        ranked = sorted((a for a, s in candidates.values()), key=lambda a: (-candidates[a.path][1], a.name.lower()))
+        ranked = sorted(
+            (a for a, s in candidates.values()),
+            key=lambda a: (-candidates[a.path][1], a.name.lower())
+        )
+
         self._rank_cache[cache_key] = ranked
         return ranked
 

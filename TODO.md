@@ -1,8 +1,6 @@
 # HIGH
 
 * How come some `.py` files has a plain-text icon, and some has the Python logo?
-* `.js` files does not show Textadept as the default application, but it still opens with it (the select shows Emacs)
-* Why can I not change default application on `.php` files? Because there's only Kate, right?
 
 # MEDIUM
 
@@ -31,8 +29,6 @@
 * Middle-click to close tabs
 * Paste: Folder conflict: "Replace" option. Deletes the target and replaces it with the source. Important to check if Source and Target are the same here.
 * Alt+Up/Down to scroll
-* Cache "Open with..."? Or maybe cache wherever the source information comes from.
-* Ranked sorting of the candidates in the "Open with" dialog - the application(s) most likely to be correct shall be placed first. Not sure if possible, but worth a shot.
 * Application icons in the "Open with" dialog
 * Mount and unmount drives
 * Network locations
