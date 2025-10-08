@@ -1,86 +1,65 @@
 #!/usr/bin/env python3
-"""
-Test script to verify filter selection persistence
-"""
+"""Lightweight selection persistence test using FileTab directly (no MainWindow)."""
 
-import sys
 import os
+import sys
+import tempfile
+
 sys.path.insert(0, 'src')
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-from ui.main_window import MainWindow
+from ui.main_window import FileTab  # Reuse FileTab logic only
+
 
 def test_filter_selection():
-    """Test that selection persists when filtering"""
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication([])
 
-    # Create main window
-    window = MainWindow()
+    with tempfile.TemporaryDirectory() as tmp:
+        # Create some files with predictable names
+        names = ["alpha.txt", "alpine.txt", "beta.txt", "gamma.txt"]
+        for n in names:
+            open(os.path.join(tmp, n), 'w').close()
 
-    # Navigate to current directory for testing
-    test_path = os.getcwd()
-    window.navigate_to(test_path)
+        tab = FileTab(tmp)
+        tab.navigate_to(tmp)
 
-    # Get file list view
-    file_list = window.file_list
+        # Ensure file list populated
+        model = tab.file_list.source_model
+        assert model.rowCount() == len(names)
 
-    # Print current files
-    print(f"Files in {test_path}:")
-    for row in range(file_list.source_model.rowCount()):
-        item = file_list.source_model.item(row, 0)
-        if item:
-            print(f"  {item.text()}")
+        # Select the second item after initial sort (FileListView sorts? assume name order)
+        # We'll locate item named 'alpine.txt'
+        target_name = 'alpine.txt'
+        target_index = None
+        for row in range(model.rowCount()):
+            item = model.item(row, 0)
+            if item and item.text() == target_name:
+                # Map to proxy (the proxy may re-order; use select_item_by_name for reliability)
+                tab.file_list.select_item_by_name(target_name)
+                target_index = tab.file_list.currentIndex()
+                break
+        assert target_index and target_index.isValid(), "Failed to select target item before filtering"
 
-    # Test 1: Select an item and apply filter
-    print("\nTest 1: Selection persistence with filtering")
-    if file_list.source_model.rowCount() > 1:
-        # Select second item
-        second_index = file_list.proxy_model.index(1, 0)
-        if second_index.isValid():
-            file_list.setCurrentIndex(second_index)
-            src_index = file_list.proxy_model.mapToSource(second_index)
-            selected_item = file_list.source_model.item(src_index.row(), 0)
-            selected_name = selected_item.text() if selected_item else "None"
-            print(f"Selected item: {selected_name}")
+        # Apply filter that should keep 'alpine.txt' visible (common prefix 'al')
+        tab.apply_filter('al')
+        cur_idx = tab.file_list.currentIndex()
+        assert cur_idx.isValid(), "Selection lost after applying filter"
+        src_idx = tab.file_list.proxy_model.mapToSource(cur_idx)
+        sel_item = model.item(src_idx.row(), 0)
+        assert sel_item and sel_item.text() == target_name, "Wrong item selected after filter"
 
-            # Apply a filter that should include this item
-            filter_text = selected_name[:2] if len(selected_name) > 2 else selected_name
-            print(f"Applying filter: '{filter_text}'")
-            window.apply_filter(filter_text)
+        # Clear filter and ensure selection still same
+        tab.clear_filter()
+        cur_idx2 = tab.file_list.currentIndex()
+        assert cur_idx2.isValid(), "Selection lost after clearing filter"
+        src_idx2 = tab.file_list.proxy_model.mapToSource(cur_idx2)
+        sel_item2 = model.item(src_idx2.row(), 0)
+        assert sel_item2 and sel_item2.text() == target_name, "Selection changed after clearing filter"
 
-            # Check if selection is maintained
-            current_index = file_list.currentIndex()
-            if current_index.isValid():
-                src_index = file_list.proxy_model.mapToSource(current_index)
-                current_item = file_list.source_model.item(src_index.row(), 0)
-                current_name = current_item.text() if current_item else "None"
-                print(f"Current selection after filter: {current_name}")
-
-                if current_name == selected_name:
-                    print("✓ Selection persistence test PASSED")
-                else:
-                    print("✗ Selection persistence test FAILED")
-            else:
-                print("✗ No selection after filter")
-
-            # Clear filter and check visibility
-            print("\nTest 2: Visibility after clearing filter")
-            window.clear_filter()
-
-            # Check if item is still selected
-            current_index = file_list.currentIndex()
-            if current_index.isValid():
-                src_index = file_list.proxy_model.mapToSource(current_index)
-                current_item = file_list.source_model.item(src_index.row(), 0)
-                current_name = current_item.text() if current_item else "None"
-                print(f"Current selection after clearing filter: {current_name}")
-                print("✓ Visibility test completed (selection maintained)")
-            else:
-                print("✗ No selection after clearing filter")
-
-    print("\nTests completed!")
-    return True
-
-if __name__ == "__main__":
-    test_filter_selection()
+        # Apply a filter that excludes the selected item => selection should move (implementation chooses first row)
+        tab.apply_filter('gamma')
+        cur_idx3 = tab.file_list.currentIndex()
+        assert cur_idx3.isValid(), "No selection after restrictive filter"
+        src_idx3 = tab.file_list.proxy_model.mapToSource(cur_idx3)
+        new_item = model.item(src_idx3.row(), 0)
+        assert new_item and new_item.text() == 'gamma.txt', "Did not select first remaining item after restrictive filter"

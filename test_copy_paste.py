@@ -4,28 +4,40 @@ import os
 import sys
 import tempfile
 import time
-from PyQt6.QtCore import QCoreApplication
+from PyQt6.QtWidgets import QApplication
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, 'src')
 from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
 
-from PyQt6.QtCore import QCoreApplication
-app = QCoreApplication.instance() or QCoreApplication([])
+@pytest.fixture(autouse=True)
+def _ensure_qapp(qapp):  # noqa: PT004
+    """Ensure QApplication exists for these tests (qapp fixture from conftest)."""
+    return qapp
 
 
-def wait_task(task, timeout=5):
+def wait_task(task, timeout=10):
+    """Wait for a FileTransferTask to finish with improved event pumping.
+
+    Some CI / headless environments can be slower to spin up threads; extend
+    timeout and use shorter sleeps to reduce probability of spurious timeout.
+    """
     start = time.time()
     done = []
+
     def finished(success, error):
         done.append((success, error))
+
     task.finished.connect(finished)
-    while time.time() - start < timeout:
-        QCoreApplication.processEvents()
+
+    while True:
+        QApplication.processEvents()
         if done:
             return done[0]
-        time.sleep(0.05)
-    return False, 'timeout'
+        if time.time() - start >= timeout:
+            return False, 'timeout'
+        time.sleep(0.01)
 
 
 def create_file(path: Path, size: int, content=b'x'):

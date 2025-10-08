@@ -263,7 +263,7 @@ class ApplicationManager:
             ])
 
         # Examine all apps for heuristic inclusion
-        editor_name_tokens = {'kate', 'gedit', 'code', 'codium', 'emacs', 'nano', 'vim', 'neovim', 'textadept', 'sublime', 'notepadqq'}
+        editor_name_tokens = self._get_editor_exec_tokens()
 
         for app in all_apps:
             if not app.should_be_visible():
@@ -299,6 +299,50 @@ class ApplicationManager:
         ranked = sorted((a for a, s in candidates.values()), key=lambda a: (-candidates[a.path][1], a.name.lower()))
         self._rank_cache[cache_key] = ranked
         return ranked
+
+    # --- Helper discovery routines -------------------------------------------------
+    def _get_editor_exec_tokens(self) -> set:
+        """Dynamically discover probable editor executable name tokens.
+
+        Rationale: Previously this was a static set. We now scan available desktop
+        applications and collect executable basenames for those that plausibly act
+        as text editors so heuristic scoring adapts to the user's system.
+
+        Heuristic rules (union of):
+        - Declares support for at least one text/* MIME type
+        - OR has Categories including one of {'Development', 'Utility', 'TextEditor'}
+        Additionally we seed with a small fallback list if discovery yields nothing.
+
+        Returned tokens are lower‑cased executable basenames with common suffixes
+        trimmed ("-bin").
+        """
+        if hasattr(self, '_editor_tokens_cache') and self._editor_tokens_cache is not None:
+            return self._editor_tokens_cache
+
+        candidates = set()
+        probable_categories = {'development', 'utility', 'texteditor'}
+        for app in self._get_all_applications():
+            if not app.should_be_visible():
+                continue
+            # Exec basename
+            exec_cmd = app.exec_command.split()[0] if app.exec_command else ''
+            exec_base = os.path.basename(exec_cmd).lower()
+            if not exec_base:
+                continue
+            cats = {c.lower() for c in app.categories}
+            has_text_mime = any(mt.startswith('text/') for mt in app.mime_types)
+            category_match = bool(probable_categories & cats)
+            if has_text_mime or category_match:
+                # Normalize: strip typical suffix like "-bin" (e.g., code-insiders)
+                cleaned = re.sub(r'(?:-bin)$', '', exec_base)
+                candidates.add(cleaned)
+
+        # Fallback seeds if discovery failed (minimal common editors)
+        if not candidates:
+            candidates.update({'code', 'vim', 'nvim', 'nano', 'gedit', 'kate', 'emacs'})
+
+        self._editor_tokens_cache = candidates
+        return candidates
 
     def _get_all_applications(self) -> List[DesktopApplication]:
         """Get all desktop applications (cached)."""

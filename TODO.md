@@ -1,6 +1,8 @@
 # HIGH
 
 * How come some `.py` files has a plain-text icon, and some has the Python logo?
+* `.js` files does not show Textadept as the default application, but it still opens with it (the select shows Emacs)
+* Why can I not change default application on `.php` files? Because there's only Kate, right?
 
 # MEDIUM
 
@@ -34,3 +36,7 @@
 * Application icons in the "Open with" dialog
 * Mount and unmount drives
 * Network locations
+* Share/send to application (like Slack)
+* Compress/uncompress
+* Rename: Option to choose auto name: "example (1).txt", "example.bak1"
+* Ctrl+Shift+PageUp/PageDown to move the current tab
