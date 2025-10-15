@@ -588,6 +588,27 @@ class ApplicationManager:
         self._editor_tokens_cache = candidates
         return candidates
 
+    def is_probable_editor(self, app: DesktopApplication) -> bool:
+        """Heuristic check whether an application behaves like a text editor."""
+        if not isinstance(app, DesktopApplication) or not app.exec_command:
+            return False
+
+        exec_cmd = app.exec_command.split()[0]
+        exec_base = os.path.basename(exec_cmd).lower() if exec_cmd else ""
+        if exec_base:
+            tokens = self._get_editor_exec_tokens()
+            if any(tok in exec_base for tok in tokens):
+                return True
+
+        if any(mt.startswith('text/') for mt in app.mime_types):
+            return True
+
+        editor_categories = {'texteditor', 'development'}
+        if any(cat.lower() in editor_categories for cat in app.categories):
+            return True
+
+        return False
+
     def _get_all_applications(self) -> List[DesktopApplication]:
         """Get all desktop applications (cached)."""
         if self._applications_cache is not None:

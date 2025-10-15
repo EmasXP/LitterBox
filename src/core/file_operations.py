@@ -384,33 +384,52 @@ class FileOperations:
 
     @staticmethod
     def open_with_editor(path):
-        """Open file with text editor"""
+        """Open file with a text editor honoring the user's desktop defaults."""
+        last_error = ""
+
         try:
-            # Try common text editors in order of preference
-            editors = [
-                ['gedit', path],
-                ['kate', path],
-                ['notepadqq', path],
-                ['pluma', path],
-                ['leafpad', path],
-                ['mousepad', path],
-                ['nano', path],  # This will open in terminal
-                ['vi', path]     # This will open in terminal
-            ]
+            from core.application_manager import ApplicationManager
 
-            for editor_cmd in editors:
-                try:
-                    subprocess.Popen(editor_cmd)
+            app_mgr = ApplicationManager()
+
+            def _launch(app):
+                success, error = app_mgr.open_with_application(path, app)
+                return success, error
+
+            default_app = app_mgr.get_default_application(path)
+            if default_app and app_mgr.is_probable_editor(default_app):
+                success, error = _launch(default_app)
+                if success:
                     return True, ""
-                except (subprocess.CalledProcessError, FileNotFoundError):
-                    continue
+                last_error = error or last_error
 
-            # Fallback to xdg-open (which should work for text files)
+            try:
+                ranked_apps = app_mgr.get_ranked_applications_for_file(path)
+            except AttributeError:
+                ranked_apps = app_mgr.get_applications_for_file(path)
+
+            for app in ranked_apps:
+                if default_app and app.path == default_app.path:
+                    continue
+                if not app_mgr.is_probable_editor(app):
+                    continue
+                success, error = _launch(app)
+                if success:
+                    return True, ""
+                last_error = error or last_error
+
+        except Exception as e:
+            last_error = str(e) or last_error
+
+        try:
             subprocess.run(['xdg-open', path], check=True)
             return True, ""
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            return False, str(e)
+            if not last_error:
+                last_error = str(e)
+
+        return False, last_error or "No suitable editor found."
 
     @staticmethod
     def open_with_default(path):
