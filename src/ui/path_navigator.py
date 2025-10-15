@@ -4,12 +4,14 @@ Path navigation widget - displays path as clickable buttons
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QPushButton, QLineEdit,
                              QSizePolicy)
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QKeyEvent
 from pathlib import Path
 
 class PathNavigator(QWidget):
     """Widget that displays current path as clickable buttons or text input"""
 
     path_changed = pyqtSignal(str)
+    edit_mode_exited = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,25 +23,25 @@ class PathNavigator(QWidget):
 
     def setup_ui(self):
         """Initialize the UI components"""
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(2)
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(2)
 
         # Text input for edit mode
         self.path_edit = QLineEdit()
         self.path_edit.setVisible(False)
         self.path_edit.returnPressed.connect(self.confirm_path_edit)
-        self.layout.addWidget(self.path_edit)
+        self._layout.addWidget(self.path_edit)
 
         # Container for path buttons
         self.button_container = QWidget()
         self.button_layout = QHBoxLayout(self.button_container)
         self.button_layout.setContentsMargins(0, 0, 0, 0)
         self.button_layout.setSpacing(2)
-        self.layout.addWidget(self.button_container)
+        self._layout.addWidget(self.button_container)
 
         # Stretch to push buttons to left
-        self.layout.addStretch()
+        self._layout.addStretch()
 
     def set_path(self, path):
         """Set the current path and update display"""
@@ -50,7 +52,8 @@ class PathNavigator(QWidget):
         """Update the path button display"""
         # Clear existing buttons
         for i in reversed(range(self.button_layout.count())):
-            child = self.button_layout.itemAt(i).widget()
+            item = self.button_layout.itemAt(i)
+            child = item.widget() if item else None
             if child:
                 child.deleteLater()
 
@@ -145,6 +148,7 @@ class PathNavigator(QWidget):
         self.edit_mode = False
         self.path_edit.setVisible(False)
         self.button_container.setVisible(True)
+        self.edit_mode_exited.emit()
 
     def confirm_path_edit(self):
         """Confirm the path edit and navigate"""
@@ -154,9 +158,12 @@ class PathNavigator(QWidget):
             self.path_changed.emit(str(self.current_path))
         self.exit_edit_mode()
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, a0: QKeyEvent | None):
         """Handle key press events"""
-        if event.key() == Qt.Key.Key_Escape and self.edit_mode:
+        if a0 is None:
+            super().keyPressEvent(a0)
+            return
+        if a0.key() == Qt.Key.Key_Escape and self.edit_mode:
             self.exit_edit_mode()
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(a0)

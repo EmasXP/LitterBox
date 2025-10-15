@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
                              QMenu, QDialog, QTabBar, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QEventLoop
-from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon
+from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QKeyEvent
 from pathlib import Path
 import os
 
@@ -66,22 +66,25 @@ class FilterBar(QFrame):
         self.setVisible(False)
         self.filter_cleared.emit()
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, a0: QKeyEvent | None):
         """Handle key events in filter bar"""
-        if event.key() == Qt.Key.Key_Escape:
+        if a0 is None:
+            super().keyPressEvent(a0)
+            return
+        if a0.key() == Qt.Key.Key_Escape:
             self.hide_filter()
-        elif event.key() == Qt.Key.Key_Up:
+        elif a0.key() == Qt.Key.Key_Up:
             self.navigate_list.emit('up')
-        elif event.key() == Qt.Key.Key_Down:
+        elif a0.key() == Qt.Key.Key_Down:
             self.navigate_list.emit('down')
-        elif event.key() == Qt.Key.Key_Left:
+        elif a0.key() == Qt.Key.Key_Left:
             self.navigate_list.emit('left')
-        elif event.key() == Qt.Key.Key_Right:
+        elif a0.key() == Qt.Key.Key_Right:
             self.navigate_list.emit('right')
-        elif event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+        elif a0.key() == Qt.Key.Key_Return or a0.key() == Qt.Key.Key_Enter:
             self.item_activated.emit()
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(a0)
 
 class FileTab(QWidget):
     """Individual LitterBox tab"""
@@ -683,6 +686,7 @@ class MainWindow(QMainWindow):
         nav_layout.setSpacing(0)
         self.toolbar_path_navigator = PathNavigator()
         self.toolbar_path_navigator.path_changed.connect(self.navigate_current_tab_to_path)
+        self.toolbar_path_navigator.edit_mode_exited.connect(self._focus_current_file_list)
         nav_layout.addWidget(self.toolbar_path_navigator)
         toolbar.addWidget(nav_container)
 
@@ -829,6 +833,11 @@ class MainWindow(QMainWindow):
         current_tab = self.get_current_tab()
         if current_tab:
             current_tab.navigate_to(path)
+
+    def _focus_current_file_list(self):
+        tab = self.get_current_tab()
+        if tab and hasattr(tab, 'file_list'):
+            tab.file_list.setFocus()
 
     def get_current_tab(self) -> Optional['FileTab']:
         """Get the current active tab as FileTab (None if not a FileTab)"""
