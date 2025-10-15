@@ -253,6 +253,8 @@ class FileTab(QWidget):
         if FileOperations.is_text_file(path):
             edit_button = dialog.addButton("Edit", QMessageBox.ButtonRole.ActionRole)
 
+        open_with_button = dialog.addButton("Open with...", QMessageBox.ButtonRole.ActionRole)
+
         cancel_button = dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
 
         # Set default button based on type
@@ -277,6 +279,13 @@ class FileTab(QWidget):
             success, error = FileOperations.open_with_editor(path)
             if not success:
                 QMessageBox.warning(self, "Edit Failed", f"Could not open editor:\n{error}")
+        elif clicked_button == open_with_button:
+            main_window: Any = self.window()
+            if main_window and hasattr(main_window, 'show_open_with_dialog'):
+                try:
+                    main_window.show_open_with_dialog(path)  # type: ignore[attr-defined]
+                except Exception as e:  # pragma: no cover
+                    QMessageBox.warning(self, "Open With Failed", f"Could not open dialog:\n{e}")
 
     def show_context_menu(self, path, position):
         """Show context menu for file/folder"""
