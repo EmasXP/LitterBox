@@ -1,6 +1,6 @@
 # HIGH
 
-* How come some `.py` files has a plain-text icon, and some has the Python logo?
+_Such empty._
 
 # MEDIUM
 
@@ -13,16 +13,17 @@
 * Clicking on folder in the path bar: Pre-select the used-to-be child
 * Del to move to trash, Ctrl+Del to delete file. Confirmation first. There can be several items selected too.
 * Duplicates in the "Open with" dialog
+* Filter in "Open with..." dialog
+* Application icons in the "Open with" dialog
+* "Open with..." "Other application"
+  * List all applications that accept a file path, group by category
+  * Add option to browse a binary via a file picker
+* When renaming file: it would be nice if the file row was still selected after rename
 
 # LOW
 
 * Show "[folder name] [long dash] LitterBox" in the Application title bar
 * When deep in tree, the path bar does not fit well
-* Filter in "Open with..." dialog
-* "Open with..." "Other application"
-  * List all applications that accept a file path, group by category
-  * Add option to browse a binary via a file picker
-* When renaming file: it would be nice if the file row was still selected after rename
 * The "raw" path bar (the text input one) could be wider
 * Some test files are not proper test files, it seems like (at least test_copy_paste.py isn't)
 * Feels like our testing structure is wonky, there must be a better way
@@ -31,7 +32,6 @@
 * Middle-click to close tabs
 * Paste: Folder conflict: "Replace" option. Deletes the target and replaces it with the source. Important to check if Source and Target are the same here.
 * Alt+Up/Down to scroll
-* Application icons in the "Open with" dialog
 * Mount and unmount drives
 * Network locations
 * Share/send to application (like Slack)

@@ -6,12 +6,13 @@ from PyQt6.QtWidgets import (QTreeWidget, QTreeWidgetItem, QHeaderView,
 from PyQt6.QtCore import pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent, QTimer
 from PyQt6.QtGui import (
     QIcon, QDrag, QStandardItemModel, QStandardItem, QKeyEvent,
-    QPixmap, QPainter
+    QPixmap, QPainter, QMouseEvent
 )
 from PyQt6.QtWidgets import QFileIconProvider
-from PyQt6.QtCore import QSize, QMimeDatabase
-from typing import cast
+from PyQt6.QtCore import QSize, QMimeDatabase, QObject
+from typing import cast, Optional
 from core.file_operations import FileOperations
+from core.application_manager import ApplicationManager
 from datetime import datetime
 import os
 
@@ -216,6 +217,10 @@ class FileListView(QTreeView):
         self._overlay_cache = {}
         self._base_icon_size = QSize(16, 16)  # standard small icon size for list view
         self._overlay_icon_size = QSize(8, 8)
+        try:
+            self._application_manager = ApplicationManager()
+        except Exception:
+            self._application_manager = None
 
     # already connected above if header available
 
@@ -535,20 +540,21 @@ class FileListView(QTreeView):
             if first_index.isValid():
                 self.setCurrentIndex(first_index)
 
-    def eventFilter(self, object, event):  # parameter name 'object' matches Qt signature
+    def eventFilter(self, object: Optional[QObject], event: Optional[QEvent]):  # parameter names follow Qt signature
         """Event filter to catch key events before Qt's default processing"""
-        if object == self and event.type() == QEvent.Type.KeyPress:
-            # Cast safely to QKeyEvent for access to text()/modifiers()
-            if isinstance(event, QKeyEvent):
-                if event.text() and event.text().isprintable() and not event.modifiers():
-                    self.filter_requested.emit(event.text())
-                    return True
+        if object == self and isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress:
+            text = event.text()
+            if text and text.isprintable() and not event.modifiers():
+                self.filter_requested.emit(text)
+                return True
 
         # Let the parent handle all other events
         return super().eventFilter(object, event)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: Optional[QKeyEvent]):
         """Handle key press events for navigation and actions"""
+        if event is None:
+            return
         # Emacs-style: Alt+< (M-<) go to beginning, Alt+> (M->) go to end
         # On many layouts this is produced via Alt+Shift+',' and Alt+Shift+'.'
         # We check modifiers and the text to remain layout-agnostic.
@@ -703,8 +709,10 @@ class FileListView(QTreeView):
         # Let's try setting it differently
         selection_model.setCurrentIndex(target_index, selection_model.SelectionFlag.NoUpdate)
 
-    def mousePressEvent(self, e):
+    def mousePressEvent(self, e: Optional[QMouseEvent]):
         """Handle mouse press events to reset selection anchor"""
+        if e is None:
+            return
         super().mousePressEvent(e)
 
         # Reset selection anchor when clicking (not shift-clicking)
@@ -743,7 +751,10 @@ class FileListView(QTreeView):
             return 1
 
         # Get the height of the viewport
-        viewport_height = self.viewport().height()
+        viewport = self.viewport()
+        if viewport is None:
+            return 1
+        viewport_height = viewport.height()
 
         # Get the height of a single row (use first row as reference)
         first_index = model.index(0, 0)
@@ -813,31 +824,47 @@ class FileListView(QTreeView):
         return composed
 
     def _file_icon_from_mime(self, path, is_executable):
-        """Resolve icon for a file using MIME database and theme; prefer executable icon when applicable."""
+        """Resolve icon for a file using MIME detection with ApplicationManager fallbacks."""
         icon = QIcon()
+        qmime_name = None
+
         try:
-            mime_type = None
             if self._mime_db is not None:
                 mime_type = self._mime_db.mimeTypeForFile(path, QMimeDatabase.MatchMode.MatchContent)
-            if mime_type and mime_type.isValid():
-                # Primary attempt: use exact mime name, e.g. text-plain, image-png
-                mime_name = mime_type.name().replace('/', '-')
-                icon = QIcon.fromTheme(mime_name)
-                if icon.isNull():
-                    # Generic major type fallback (text, image, audio, video, application)
-                    major = mime_name.split('-', 1)[0]
-                    generic_map = {
-                        'text': 'text-x-generic',
-                        'image': 'image-x-generic',
-                        'audio': 'audio-x-generic',
-                        'video': 'video-x-generic',
-                        'application': 'application-x-executable' if is_executable else 'application-octet-stream',
-                    }
-                    guess = generic_map.get(major)
-                    if guess:
-                        icon = QIcon.fromTheme(guess)
+                if mime_type and mime_type.isValid():
+                    qmime_name = mime_type.name()
         except Exception:
-            pass
+            qmime_name = None
+
+        normalized_qmime = ApplicationManager.normalize_mime_type(qmime_name) if qmime_name else None
+        mime_name = normalized_qmime
+
+        if not mime_name or ApplicationManager.is_generic_mime(mime_name):
+            app_mgr = getattr(self, '_application_manager', None)
+            if app_mgr is not None:
+                try:
+                    manager_mime = app_mgr.get_mime_type(path, skip_system_query=True)
+                except Exception:
+                    manager_mime = None
+                normalized_manager_mime = ApplicationManager.normalize_mime_type(manager_mime) if manager_mime else None
+                if normalized_manager_mime:
+                    mime_name = normalized_manager_mime
+
+        themed_name = mime_name.replace('/', '-') if mime_name else None
+        if themed_name:
+            icon = QIcon.fromTheme(themed_name)
+            if icon.isNull() and mime_name:
+                major = mime_name.split('/', 1)[0]
+                generic_map = {
+                    'text': 'text-x-generic',
+                    'image': 'image-x-generic',
+                    'audio': 'audio-x-generic',
+                    'video': 'video-x-generic',
+                    'application': 'application-x-executable' if is_executable else 'application-octet-stream',
+                }
+                guess = generic_map.get(major)
+                if guess:
+                    icon = QIcon.fromTheme(guess)
 
         if is_executable:
             # Prefer explicit executable icon if available

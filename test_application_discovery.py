@@ -1,4 +1,5 @@
-import os, tempfile, textwrap, sys
+import os, tempfile, textwrap, sys, subprocess
+from unittest.mock import patch
 
 # Add src directory to import path
 CURRENT_DIR = os.path.dirname(__file__)
@@ -60,3 +61,24 @@ def test_ranked_applications_include_office_odt():
         names = [a.name for a in ranked]
     assert 'ONLYOFFICE Writer' in names, names
     assert 'Calligra Words' in names, names
+
+
+def test_get_mime_type_prefers_extension_when_generic(tmp_path):
+    mgr = ApplicationManager()
+
+    py_file = tmp_path / 'script.py'
+    py_file.write_text('')
+    txt_file = tmp_path / 'notes.txt'
+    txt_file.write_text('plain text')
+
+    def fake_run(cmd, capture_output=False, text=False, check=False, **kwargs):
+        if cmd[:3] == ['xdg-mime', 'query', 'filetype']:
+            return subprocess.CompletedProcess(cmd, 0, stdout='text/plain\n', stderr='')
+        raise AssertionError(f'unexpected command: {cmd}')
+
+    with patch('core.application_manager.subprocess.run', side_effect=fake_run):
+        py_mime = mgr.get_mime_type(str(py_file))
+        txt_mime = mgr.get_mime_type(str(txt_file))
+
+    assert py_mime == 'text/x-python'
+    assert txt_mime == 'text/plain'

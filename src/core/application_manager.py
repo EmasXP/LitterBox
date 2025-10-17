@@ -179,34 +179,112 @@ class ApplicationManager:
     5. Using heuristics for better application discovery (editor detection, etc.)
     """
 
+    _GENERIC_MIME_TYPES = {
+        'text/plain',
+        'application/octet-stream',
+        'application/unknown',
+        'inode/x-empty',
+        'application/x-empty',
+    }
+
+    _EXTENSION_MIME_OVERRIDES = {
+        '.bash': 'text/x-shellscript',
+        '.fish': 'text/x-shellscript',
+        '.ksh': 'text/x-shellscript',
+        '.ps1': 'text/x-powershell',
+        '.psm1': 'text/x-powershell',
+        '.py': 'text/x-python',
+        '.pyi': 'text/x-python',
+        '.pyw': 'text/x-python',
+        '.sh': 'text/x-shellscript',
+        '.zsh': 'text/x-shellscript',
+    }
+
+    @staticmethod
+    def normalize_mime_type(mime: Optional[str]) -> Optional[str]:
+        if not mime:
+            return None
+        return mime.split(';', 1)[0].strip()
+
+    @classmethod
+    def is_generic_mime(cls, mime: Optional[str]) -> bool:
+        if not mime:
+            return True
+        return mime.lower() in cls._GENERIC_MIME_TYPES
+
     def __init__(self, extra_desktop_dirs: Optional[Iterable[str]] = None):
             self._applications_cache: Optional[List[DesktopApplication]] = None
             self._mime_cache: Dict[str, List[DesktopApplication]] = {}
             self._rank_cache: Dict[Tuple, List[DesktopApplication]] = {}
             self._extra_desktop_dirs = list(extra_desktop_dirs) if extra_desktop_dirs else []
+            self._path_mime_cache: Dict[str, Tuple[int, int, str]] = {}
             mimetypes.init()
 
-    def get_mime_type(self, file_path: str) -> str:
+    def get_mime_type(self, file_path: str, skip_system_query: bool = False) -> str:
         """Get MIME type for a file"""
-        try:
-            # Try using xdg-mime first (more accurate)
-            result = subprocess.run(
-                ['xdg-mime', 'query', 'filetype', file_path],
-                capture_output=True, text=True, check=True
-            )
-            mime_type = result.stdout.strip()
-            if mime_type and mime_type != 'application/octet-stream':
-                return mime_type
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
+        cache_signature: Optional[Tuple[int, int]] = None
+        if file_path:
+            try:
+                stat_info = os.stat(file_path)
+                cache_signature = (stat_info.st_mtime_ns, stat_info.st_size)
+                cached = self._path_mime_cache.get(file_path)
+                if cached and cached[0] == cache_signature[0] and cached[1] == cache_signature[1]:
+                    return cached[2]
+            except (OSError, ValueError):
+                cache_signature = None
+
+        normalized_xdg_mime = None
+        if not skip_system_query:
+            try:
+                # Try using xdg-mime first (more accurate)
+                result = subprocess.run(
+                    ['xdg-mime', 'query', 'filetype', file_path],
+                    capture_output=True, text=True, check=True
+                )
+                normalized_xdg_mime = self.normalize_mime_type(result.stdout.strip())
+                if normalized_xdg_mime and not self.is_generic_mime(normalized_xdg_mime):
+                    resolved = normalized_xdg_mime
+                    if cache_signature is not None:
+                        self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
+                    return resolved
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
 
         # Fallback to Python's mimetypes module
         mime_type, _ = mimetypes.guess_type(file_path)
-        if mime_type:
-            return mime_type
+        normalized_guess = self.normalize_mime_type(mime_type)
+        if normalized_guess and not self.is_generic_mime(normalized_guess):
+            resolved = normalized_guess
+            if cache_signature is not None:
+                self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
+            return resolved
+
+        # Extension-specific overrides for script-like files without shebangs
+        ext = Path(file_path).suffix.lower()
+        override_mime = self._EXTENSION_MIME_OVERRIDES.get(ext)
+        if override_mime:
+            resolved = override_mime
+            if cache_signature is not None:
+                self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
+            return resolved
+
+        # Return the best available generic MIME type fallback
+        if normalized_xdg_mime:
+            resolved = normalized_xdg_mime
+            if cache_signature is not None:
+                self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
+            return resolved
+        if normalized_guess:
+            resolved = normalized_guess
+            if cache_signature is not None:
+                self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
+            return resolved
 
         # Default fallback
-        return 'application/octet-stream'
+        resolved = 'application/octet-stream'
+        if cache_signature is not None:
+            self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
+        return resolved
 
     def _get_mime_types_for_file(self, file_path: str) -> List[str]:
         """Get an ordered list of MIME types for a file.
