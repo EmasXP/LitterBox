@@ -2,19 +2,25 @@
 File list view widget - displays files and folders in a detailed list
 """
 from PyQt6.QtWidgets import (QTreeWidget, QTreeWidgetItem, QHeaderView,
-                             QAbstractItemView, QMenu, QTreeView)
-from PyQt6.QtCore import pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent, QTimer
+                             QAbstractItemView, QMenu, QTreeView, QStyledItemDelegate,
+                             QFileIconProvider, QStyleOptionViewItem, QStyle, QMessageBox)
+from PyQt6.QtCore import (pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent,
+                          QTimer, QSize, QMimeDatabase, QObject, QModelIndex, QUrl)
 from PyQt6.QtGui import (
     QIcon, QDrag, QStandardItemModel, QStandardItem, QKeyEvent,
-    QPixmap, QPainter, QMouseEvent
+    QPixmap, QPainter, QMouseEvent, QDropEvent, QDragEnterEvent,
+    QDragLeaveEvent, QDragMoveEvent, QCursor
 )
-from PyQt6.QtWidgets import QFileIconProvider
-from PyQt6.QtCore import QSize, QMimeDatabase, QObject
-from typing import cast, Optional
+from typing import cast, Optional, List
+from dataclasses import dataclass
+import json
 from core.file_operations import FileOperations
 from core.application_manager import ApplicationManager
 from datetime import datetime
 import os
+from core.clipboard_manager import GNOME_MIME, KDE_CUT_MIME
+
+INTERNAL_MIME = "application/x-litterbox-items"
 
 class FileSortProxyModel(QSortFilterProxyModel):
     """Custom proxy model that prioritizes directories over files"""
@@ -99,6 +105,32 @@ class FileSortProxyModel(QSortFilterProxyModel):
         # Use default comparison for other columns
         return super().lessThan(left, right)
 
+
+@dataclass
+class DropPayload:
+    local_paths: List[str]
+    remote_urls: List[str]
+    internal: bool
+    source_dir: Optional[str]
+    operation: str
+
+
+class DropIndicatorDelegate(QStyledItemDelegate):
+    """Delegate that highlights the current drop target using native styles."""
+
+    def __init__(self, view):
+        super().__init__(view)
+        self._view = view
+
+    def paint(self, painter, option, index):  # type: ignore[override]
+        opt = QStyleOptionViewItem(option)
+        target: QModelIndex = getattr(self._view, "_drop_target_index", QModelIndex())
+        if target.isValid() and index == target:
+            opt.state |= QStyle.StateFlag.State_Selected
+            opt.state |= QStyle.StateFlag.State_Active
+            opt.state |= QStyle.StateFlag.State_HasFocus
+        super().paint(painter, opt, index)
+
 class FileListView(QTreeView):
     """Tree view for displaying files and folders with custom sorting"""
 
@@ -108,12 +140,16 @@ class FileListView(QTreeView):
     filter_requested = pyqtSignal(str)  # character typed for filtering
     parent_navigation_requested = pyqtSignal(str, str)  # parent_path, folder_to_select
     escape_pressed = pyqtSignal()  # emitted when Esc pressed while list has focus
+    drop_operation_requested = pyqtSignal(list, str, bool)  # paths, destination_dir, move
+    drop_download_requested = pyqtSignal(list, str)  # remote_urls, destination_dir
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_path = ""
         self._selection_anchor = None  # Track the anchor point for shift+navigation selection
         self._last_navigation_row = None  # Track the last position during shift navigation
+        self._drop_target_index = QModelIndex()
+        self._drag_payload = None  # type: Optional[DropPayload]
 
         # Load sort preferences from settings
         from utils.settings import Settings
@@ -141,6 +177,7 @@ class FileListView(QTreeView):
 
         self.setup_ui()
         self.setup_connections()
+        self.setItemDelegate(DropIndicatorDelegate(self))
 
         # Restore column widths after everything is set up
         self.restore_column_widths()
@@ -150,6 +187,334 @@ class FileListView(QTreeView):
 
         # Apply initial sort indicator after everything is set up
         self.update_sort_indicator()
+
+    # ---- Drag & Drop helpers ----
+    def startDrag(self, supportedActions):  # type: ignore[override]
+        paths = self.get_selected_items()
+        if not paths:
+            return
+        mime = self._build_drag_mime(paths)
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        pixmap = self._create_drag_pixmap(paths)
+        if not pixmap.isNull():
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(pixmap.rect().center())
+        drag.exec(Qt.DropAction.CopyAction | Qt.DropAction.MoveAction, Qt.DropAction.CopyAction)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):  # type: ignore[override]
+        payload = self._parse_mime_data(event.mimeData())
+        if not payload:
+            event.ignore()
+            return
+        self._drag_payload = payload
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event: QDragMoveEvent):  # type: ignore[override]
+        if self._drag_payload is None:
+            payload = self._parse_mime_data(event.mimeData())
+            if not payload:
+                event.ignore()
+                return
+            self._drag_payload = payload
+        payload = self._drag_payload
+        if payload is None:
+            event.ignore()
+            return
+        pos = event.position().toPoint()
+        index = self.indexAt(pos)
+        if index.isValid():
+            index = index.sibling(index.row(), 0)
+        path, is_dir = self._target_info_from_index(index)
+        if not is_dir:
+            index = QModelIndex()
+        else:
+            if payload.local_paths and path:
+                if path in payload.local_paths:
+                    index = QModelIndex()
+                else:
+                    for p in payload.local_paths:
+                        try:
+                            if os.path.commonpath([p, path]) == p:
+                                index = QModelIndex()
+                                break
+                        except ValueError:
+                            continue
+        self._set_drop_target(index)
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent):  # type: ignore[override]
+        self._clear_drag_state()
+        event.accept()
+
+    def dropEvent(self, event: QDropEvent):  # type: ignore[override]
+        payload = self._drag_payload or self._parse_mime_data(event.mimeData())
+        self._clear_drag_state()
+        if not payload:
+            event.ignore()
+            return
+        pos = event.position().toPoint()
+        index = self.indexAt(pos)
+        if index.isValid():
+            index = index.sibling(index.row(), 0)
+        target_path, target_is_dir = self._target_info_from_index(index)
+        dropped_on_non_dir = bool(target_path) and not target_is_dir
+        if not target_is_dir:
+            target_path = None
+        dest_dir = target_path if target_path else self.current_path
+
+        viewport = self.viewport()
+        global_pos = viewport.mapToGlobal(pos) if viewport else QCursor.pos()
+
+        if payload.remote_urls and not payload.local_paths:
+            choice = self._prompt_remote_drop(global_pos)
+            if choice == 'download':
+                self.drop_download_requested.emit(payload.remote_urls, dest_dir)
+                event.setDropAction(Qt.DropAction.CopyAction)
+                event.accept()
+            else:
+                event.ignore()
+            return
+
+        if not payload.local_paths:
+            event.ignore()
+            return
+
+        if not self._can_copy_to_destination(payload.local_paths, dest_dir):
+            QMessageBox.warning(self, "Invalid Drop", "Cannot copy items into one of their subfolders.")
+            event.ignore()
+            return
+
+        allow_move = self._can_offer_move(payload, dest_dir)
+        if dropped_on_non_dir:
+            allow_move = False
+        choice = self._prompt_local_drop(allow_move, global_pos)
+        if choice == 'cancel':
+            event.ignore()
+            return
+
+        move = (choice == 'move')
+        self.drop_operation_requested.emit(payload.local_paths, dest_dir, move)
+        event.setDropAction(Qt.DropAction.MoveAction if move else Qt.DropAction.CopyAction)
+        event.accept()
+
+    def _build_drag_mime(self, paths):
+        mime = QMimeData()
+        abs_paths = []
+        for p in paths:
+            if not p:
+                continue
+            abs_paths.append(os.path.abspath(p))
+        if not abs_paths:
+            return mime
+        urls = [QUrl.fromLocalFile(p) for p in abs_paths]
+        mime.setUrls(urls)
+        mime.setText("\n".join(abs_paths))
+        payload_lines = ["copy"] + [u.toString() for u in urls]
+        mime.setData(GNOME_MIME, "\n".join(payload_lines).encode('utf-8'))
+        mime.setData(KDE_CUT_MIME, b'0')
+        internal_payload = json.dumps({
+            "paths": abs_paths,
+            "source_dir": self.current_path,
+            "operation": "copy"
+        })
+        mime.setData(INTERNAL_MIME, internal_payload.encode('utf-8'))
+        return mime
+
+    def _create_drag_pixmap(self, paths):
+        pixmap = QPixmap(48, 48)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        icon = None
+        current_index = self.currentIndex()
+        if current_index.isValid():
+            src_idx = self.proxy_model.mapToSource(current_index)
+            if src_idx.isValid():
+                item = self.source_model.item(src_idx.row(), 0)
+                if item:
+                    icon = item.icon()
+        if not icon or icon.isNull():
+            style = self.style()
+            if style:
+                icon = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+        if icon and not icon.isNull():
+            painter.drawPixmap(8, 8, icon.pixmap(32, 32))
+        if len(paths) > 1:
+            overlay_rect = pixmap.rect().adjusted(18, 18, -4, -4)
+            painter.setBrush(Qt.GlobalColor.black)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(overlay_rect, 6, 6)
+            painter.setPen(Qt.GlobalColor.white)
+            painter.drawText(overlay_rect, Qt.AlignmentFlag.AlignCenter, str(len(paths)))
+        painter.end()
+        return pixmap
+
+    def _parse_mime_data(self, mime):
+        if mime is None:
+            return None
+        local_paths: List[str] = []
+        remote_urls: List[str] = []
+        internal = False
+        source_dir = None
+        operation = 'copy'
+
+        if mime.hasFormat(INTERNAL_MIME):
+            try:
+                data = bytes(mime.data(INTERNAL_MIME)).decode('utf-8', 'ignore')
+                payload = json.loads(data)
+                raw_paths = payload.get('paths', [])
+                for p in raw_paths:
+                    if not p:
+                        continue
+                    ap = os.path.abspath(p)
+                    if ap not in local_paths:
+                        local_paths.append(ap)
+                source_dir = payload.get('source_dir')
+                operation = payload.get('operation', 'copy')
+                internal = True
+            except Exception:
+                pass
+
+        if mime.hasFormat(GNOME_MIME):
+            try:
+                data = bytes(mime.data(GNOME_MIME)).decode('utf-8', 'ignore')
+                lines = [l.strip() for l in data.splitlines() if l.strip()]
+                index = 0
+                if lines:
+                    if lines[0] in ('copy', 'cut'):
+                        operation = lines[0]
+                        index = 1
+                    for line in lines[index:]:
+                        url = QUrl(line)
+                        if url.isLocalFile():
+                            path = os.path.abspath(url.toLocalFile())
+                            if path and path not in local_paths:
+                                local_paths.append(path)
+                        else:
+                            text = url.toString()
+                            if text and text not in remote_urls:
+                                remote_urls.append(text)
+            except Exception:
+                pass
+
+        if mime.hasFormat(KDE_CUT_MIME):
+            try:
+                raw = bytes(mime.data(KDE_CUT_MIME))
+                if raw.startswith(b'1'):
+                    operation = 'cut'
+            except Exception:
+                pass
+
+        if mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    path = os.path.abspath(url.toLocalFile())
+                    if path and path not in local_paths:
+                        local_paths.append(path)
+                else:
+                    text = url.toString()
+                    if text and text not in remote_urls:
+                        remote_urls.append(text)
+
+        if not local_paths and not remote_urls and mime.hasText():
+            for line in mime.text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                url = QUrl(line)
+                if url.isLocalFile():
+                    path = os.path.abspath(url.toLocalFile())
+                    if path and path not in local_paths:
+                        local_paths.append(path)
+                elif url.scheme():
+                    text = url.toString()
+                    if text and text not in remote_urls:
+                        remote_urls.append(text)
+
+        if not local_paths and not remote_urls:
+            return None
+
+        return DropPayload(local_paths, remote_urls, internal, source_dir, operation)
+
+    def _target_info_from_index(self, index):
+        if not index or not index.isValid():
+            return None, False
+        source_index = self.proxy_model.mapToSource(index)
+        if not source_index.isValid():
+            return None, False
+        item = self.source_model.item(source_index.row(), 0)
+        if not item:
+            return None, False
+        path = item.data(Qt.ItemDataRole.UserRole)
+        is_dir = bool(item.data(Qt.ItemDataRole.UserRole + 1))
+        return path, is_dir
+
+    def _set_drop_target(self, index):
+        if index == self._drop_target_index:
+            return
+        self._drop_target_index = index
+        viewport = self.viewport()
+        if viewport:
+            viewport.update()
+
+    def _clear_drag_state(self):
+        self._drag_payload = None
+        self._set_drop_target(QModelIndex())
+
+    def _can_offer_move(self, payload: DropPayload, dest_dir: str) -> bool:
+        if not payload.local_paths:
+            return False
+        if not dest_dir or not os.path.isdir(dest_dir):
+            return False
+        for path in payload.local_paths:
+            if not os.path.exists(path):
+                return False
+            if os.path.dirname(path) == dest_dir:
+                return False
+            if os.path.isdir(path):
+                try:
+                    if os.path.commonpath([path, dest_dir]) == path:
+                        return False
+                except ValueError:
+                    continue
+        return True
+
+    def _can_copy_to_destination(self, paths: List[str], dest_dir: str) -> bool:
+        if not dest_dir or not os.path.isdir(dest_dir):
+            return True
+        for path in paths:
+            if not path or not os.path.isdir(path):
+                continue
+            try:
+                if os.path.commonpath([path, dest_dir]) == path:
+                    return False
+            except ValueError:
+                continue
+        return True
+
+    def _prompt_local_drop(self, allow_move: bool, global_pos):
+        menu = QMenu(self)
+        move_action = menu.addAction("Move here")
+        if move_action:
+            move_action.setEnabled(allow_move)
+        copy_action = menu.addAction("Copy here")
+        cancel_action = menu.addAction("Cancel")
+        chosen = menu.exec(global_pos)
+        if chosen == move_action:
+            return 'move'
+        if chosen == copy_action:
+            return 'copy'
+        return 'cancel'
+
+    def _prompt_remote_drop(self, global_pos):
+        menu = QMenu(self)
+        download_action = menu.addAction("Download here")
+        cancel_action = menu.addAction("Cancel")
+        chosen = menu.exec(global_pos)
+        if chosen == download_action:
+            return 'download'
+        return 'cancel'
 
     def setup_ui(self):
         """Initialize the UI"""
@@ -162,6 +527,11 @@ class FileListView(QTreeView):
         self.setSortingEnabled(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(False)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
 
         # Disable inline editing - we want to use modal dialogs for rename
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

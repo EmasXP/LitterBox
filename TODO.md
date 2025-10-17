@@ -4,10 +4,6 @@ _Such empty._
 
 # MEDIUM
 
-* Drag-and-drop
-  * Files to folder
-  * LitterBox to external application
-  * External application to LitterBox
 * Paste: Folder conflict: Prevent overwrite if Source and Target is the same
 * When opening file, change CWD first
 * Clicking on folder in the path bar: Pre-select the used-to-be child
@@ -23,6 +19,7 @@ _Such empty._
 # LOW
 
 * Show "[folder name] [long dash] LitterBox" in the Application title bar
+* Cut+Paste: Meta data like created at, modified at, is that copied? If not, shall it be? Same with permissions.
 * When deep in tree, the path bar does not fit well
 * The "raw" path bar (the text input one) could be wider
 * Some test files are not proper test files, it seems like (at least test_copy_paste.py isn't)
@@ -39,3 +36,4 @@ _Such empty._
 * Rename: Option to choose auto name: "example (1).txt", "example.bak1"
 * Ctrl+Shift+PageUp/PageDown to move the current tab
 * Paste: Select the pasted file(s) afterwards?
+* The "Download" drag-and-drop has an User Agent with version number. Shall we make that dynamic?

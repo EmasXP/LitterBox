@@ -18,7 +18,7 @@ from utils.settings import Settings
 from core.clipboard_manager import ClipboardManager
 from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
 from ui.rename_dialog import get_rename
-from typing import Optional, Any
+from typing import Optional, Any, List
 
 class FilterBar(QFrame):
     """Filter bar that appears at the bottom when typing"""
@@ -151,6 +151,8 @@ class FileTab(QWidget):
         self.file_list.escape_pressed.connect(self._on_file_list_escape)
         # Connect rename request from F2 key
         self.file_list.rename_requested.connect(self.rename_item)
+        self.file_list.drop_operation_requested.connect(self._handle_drop_operation)
+        self.file_list.drop_download_requested.connect(self._handle_drop_download)
 
     def navigate_to(self, path):
         """Navigate to the specified path"""
@@ -384,6 +386,22 @@ class FileTab(QWidget):
                 QMessageBox.warning(self, "Open With Failed", f"Could not open dialog:\n{e}")
         else:  # pragma: no cover
             QMessageBox.warning(self, "Open With", "Main window does not provide Open With dialog.")
+
+    def _handle_drop_operation(self, paths: List[str], destination_dir: str, move: bool):
+        main_window: Any = self.window()
+        if main_window and hasattr(main_window, 'handle_drop_operation'):
+            try:
+                main_window.handle_drop_operation(paths, destination_dir, move)
+            except Exception:
+                pass
+
+    def _handle_drop_download(self, urls: List[str], destination_dir: str):
+        main_window: Any = self.window()
+        if main_window and hasattr(main_window, 'handle_drop_download'):
+            try:
+                main_window.handle_drop_download(urls, destination_dir)
+            except Exception:
+                pass
 
     def rename_item(self, path):
         """Rename file or folder.
@@ -1029,6 +1047,42 @@ class MainWindow(QMainWindow):
             conflict_callback=self._conflict_handler
         )
         # Debounced refresh trigger on progress + on finish (final state)
+        task.file_progress.connect(self._schedule_refresh)
+        task.finished.connect(lambda *_: self._schedule_refresh(""))
+        self.transfer_panel.setVisible(True)
+
+    def handle_drop_operation(self, paths: List[str], destination_dir: str, move: bool):
+        if not paths:
+            return
+        destination_dir = os.path.abspath(destination_dir)
+        normalized = []
+        for p in paths:
+            if not p:
+                continue
+            abs_path = os.path.abspath(p)
+            if abs_path not in normalized and os.path.exists(abs_path):
+                normalized.append(abs_path)
+        if not normalized:
+            return
+        task = self.transfer_manager.start_transfer(
+            normalized,
+            destination_dir,
+            move=move,
+            conflict_callback=self._conflict_handler
+        )
+        task.file_progress.connect(self._schedule_refresh)
+        task.finished.connect(lambda *_: self._schedule_refresh(""))
+        self.transfer_panel.setVisible(True)
+
+    def handle_drop_download(self, urls: List[str], destination_dir: str):
+        if not urls:
+            return
+        destination_dir = os.path.abspath(destination_dir)
+        task = self.transfer_manager.start_download(
+            urls,
+            destination_dir,
+            conflict_callback=self._conflict_handler
+        )
         task.file_progress.connect(self._schedule_refresh)
         task.finished.connect(lambda *_: self._schedule_refresh(""))
         self.transfer_panel.setVisible(True)
