@@ -1,10 +1,9 @@
 # HIGH
 
-_Such empty._
+* When navigating to a folder, the view is sometimes scrolled
 
 # MEDIUM
 
-* Clicking on folder in the path bar: Pre-select the used-to-be child
 * Del to move to trash, Ctrl+Del to delete file. Confirmation first. There can be several items selected too.
 * Duplicates in the "Open with" dialog
 * Filter in "Open with..." dialog

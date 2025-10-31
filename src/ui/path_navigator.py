@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QPushButton, QLineEdit,
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QKeyEvent
 from pathlib import Path
+from typing import List
 
 class PathNavigator(QWidget):
     """Widget that displays current path as clickable buttons or text input"""
@@ -17,6 +18,7 @@ class PathNavigator(QWidget):
         super().__init__(parent)
         self.current_path = Path.home()
         self.edit_mode = False
+        self._pending_selection_names: List[str] = []
 
         self.setup_ui()
         self.update_path_display()
@@ -118,14 +120,26 @@ class PathNavigator(QWidget):
                 # Prevent navigation while leaving the button enabled (no-op)
                 button.clicked.connect(lambda checked: None)
             else:
-                button.clicked.connect(lambda checked, p=str(button_path): self.navigate_to_path(p))
+                next_part = parts[idx + 1] if idx + 1 < total_parts else None
+                button.clicked.connect(
+                    lambda checked=False, p=str(button_path), child=next_part: self.navigate_to_path(p, child)
+                )
 
             self.button_layout.addWidget(button)
 
-    def navigate_to_path(self, path):
-        """Navigate to the specified path"""
+    def navigate_to_path(self, path, select_child=None):
+        """Navigate to the specified path and remember which child to select."""
+        self._pending_selection_names = []
+        if select_child:
+            self._pending_selection_names.append(str(select_child))
         self.set_path(path)
         self.path_changed.emit(str(self.current_path))
+
+    def take_selection_hints(self) -> List[str]:
+        """Return and clear pending selection hints for the next navigation."""
+        hints = self._pending_selection_names
+        self._pending_selection_names = []
+        return hints
 
     def toggle_edit_mode(self):
         """Toggle between button and text edit mode"""

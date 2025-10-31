@@ -154,11 +154,16 @@ class FileTab(QWidget):
         self.file_list.drop_operation_requested.connect(self._handle_drop_operation)
         self.file_list.drop_download_requested.connect(self._handle_drop_download)
 
-    def navigate_to(self, path):
-        """Navigate to the specified path"""
+    def navigate_to(self, path, select_entries: Optional[List[str]] = None, ensure_visible: bool = True):
+        """Navigate to the specified path and optionally select entries afterward."""
         path_obj = Path(path)
         if path_obj.exists() and path_obj.is_dir():
             self.current_path = str(path_obj.resolve())
+            if select_entries:
+                self.file_list.prepare_selection(select_entries, ensure_visible=ensure_visible)
+            else:
+                # Reset pending state to avoid stale selections when navigating normally
+                self.file_list.prepare_selection([], ensure_visible=True)
             self.file_list.set_path(self.current_path)
             # Update QFileSystemWatcher path list (single path per tab)
             try:
@@ -583,10 +588,7 @@ class FileTab(QWidget):
 
     def navigate_to_parent_and_select(self, parent_path, folder_to_select):
         """Navigate to parent directory and select the specified folder"""
-        self.navigate_to(parent_path)
-        # Use a timer to select the folder after the navigation completes
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(10, lambda: self.file_list.select_item_by_name(folder_to_select))
+        self.navigate_to(parent_path, select_entries=[folder_to_select])
 
     def create_new_folder(self):
         """Create a new folder in current directory"""
@@ -850,7 +852,11 @@ class MainWindow(QMainWindow):
         """Navigate current tab to specified path (from toolbar path navigator)"""
         current_tab = self.get_current_tab()
         if current_tab:
-            current_tab.navigate_to(path)
+            hints = []
+            navigator = getattr(self, 'toolbar_path_navigator', None)
+            if navigator and hasattr(navigator, 'take_selection_hints'):
+                hints = navigator.take_selection_hints()
+            current_tab.navigate_to(path, select_entries=hints or None, ensure_visible=True)
 
     def _focus_current_file_list(self):
         tab = self.get_current_tab()
