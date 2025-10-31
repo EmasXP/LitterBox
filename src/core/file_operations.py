@@ -4,6 +4,7 @@ File operations and utilities
 import os
 import shutil
 import subprocess
+import shlex
 from pathlib import Path
 from datetime import datetime
 import stat
@@ -288,20 +289,24 @@ class FileOperations:
             force_terminal: If True, always run in terminal regardless of type
         """
         try:
+            # Get the directory containing the executable
+            path_obj = Path(path)
+            executable_dir = str(path_obj.parent)
+
             if force_terminal:
                 # Force terminal execution
-                return FileOperations._run_in_terminal(path)
+                return FileOperations._run_in_terminal(path, cwd=executable_dir)
 
             # Use smart detection
             executable_type = FileOperations.get_executable_type(path)
 
             if executable_type == 'gui':
                 # GUI applications - run directly without terminal
-                subprocess.Popen([path])
+                subprocess.Popen([path], cwd=executable_dir)
                 return True, ""
             else:
                 # Console applications and scripts - run in terminal by default
-                return FileOperations._run_in_terminal(path)
+                return FileOperations._run_in_terminal(path, cwd=executable_dir)
 
         except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
             return False, str(e)
@@ -310,21 +315,36 @@ class FileOperations:
     def run_executable_direct(path):
         """Run an executable directly without terminal"""
         try:
-            subprocess.Popen([path])
+            # Get the directory containing the executable
+            path_obj = Path(path)
+            executable_dir = str(path_obj.parent)
+
+            subprocess.Popen([path], cwd=executable_dir)
             return True, ""
         except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
             return False, str(e)
 
     @staticmethod
-    def _run_in_terminal(path):
-        """Run executable in a terminal window"""
+    def _run_in_terminal(path, cwd=None):
+        """Run executable in a terminal window
+
+        Args:
+            path: Path to the executable
+            cwd: Working directory for the executable (defaults to parent directory of executable)
+        """
         try:
+            # If no CWD specified, use the directory containing the executable
+            if cwd is None:
+                path_obj = Path(path)
+                cwd = str(path_obj.parent)
+
             # Use gnome-terminal if available, otherwise try other common terminals
+            # Use 'cd' command to change to the correct directory before running
             terminal_commands = [
-                ['gnome-terminal', '--', 'bash', '-c', f'{path}; read -p "Press Enter to continue..."'],
-                ['konsole', '-e', 'bash', '-c', f'{path}; read -p "Press Enter to continue..."'],
-                ['xterm', '-e', 'bash', '-c', f'{path}; read -p "Press Enter to continue..."'],
-                ['x-terminal-emulator', '-e', 'bash', '-c', f'{path}; read -p "Press Enter to continue..."']
+                ['gnome-terminal', '--', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."'],
+                ['konsole', '-e', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."'],
+                ['xterm', '-e', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."'],
+                ['x-terminal-emulator', '-e', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."']
             ]
 
             for terminal_cmd in terminal_commands:
@@ -335,7 +355,7 @@ class FileOperations:
                     continue
 
             # If no terminal found, try to run directly as fallback
-            subprocess.Popen([path])
+            subprocess.Popen([path], cwd=cwd)
             return True, ""
 
         except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
@@ -438,10 +458,13 @@ class FileOperations:
             app_mgr = ApplicationManager()
             app = app_mgr.get_default_application(path)
             if app:
-                # Use the same launch path as Open With
+                # Use the same launch path as Open With (now includes CWD)
                 return app_mgr.open_with_application(path, app)
             # Fallback to xdg-open if no default resolved
-            subprocess.run(['xdg-open', path], check=True)
+            # Get the directory containing the file to use as CWD
+            path_obj = Path(path)
+            file_dir = str(path_obj.parent)
+            subprocess.run(['xdg-open', path], check=True, cwd=file_dir)
             return True, ""
         except Exception as e:
             return False, str(e)

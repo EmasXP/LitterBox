@@ -4,8 +4,6 @@ _Such empty._
 
 # MEDIUM
 
-* Paste: Folder conflict: Prevent overwrite if Source and Target is the same
-* When opening file, change CWD first
 * Clicking on folder in the path bar: Pre-select the used-to-be child
 * Del to move to trash, Ctrl+Del to delete file. Confirmation first. There can be several items selected too.
 * Duplicates in the "Open with" dialog

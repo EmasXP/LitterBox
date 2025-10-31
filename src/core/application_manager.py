@@ -775,7 +775,10 @@ class ApplicationManager:
             if not command:
                 return False, "No command available for application"
 
-            subprocess.Popen(command)
+            # Get the directory containing the file to use as CWD
+            file_dir = os.path.dirname(os.path.abspath(file_path))
+
+            subprocess.Popen(command, cwd=file_dir)
             return True, ""
         except Exception as e:
             return False, str(e)
