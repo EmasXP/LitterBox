@@ -117,6 +117,23 @@ Edit the `Exec` line to contain the absolute path to LitterBox/main.py. You migh
 
 ## Troubleshooting
 
+### Crash Logging
+If LitterBox crashes due to an unhandled exception, detailed error information is automatically logged to help with debugging:
+
+**Log Location**: `~/.local/share/litterbox/crash.log`
+
+The log file includes:
+- Timestamp of when the crash occurred
+- Exception type and error message
+- Full stack trace showing where the error originated
+
+The log file is automatically rotated when it exceeds 5 MB (the old log is saved as `crash.log.old`).
+
+To view the crash log:
+```bash
+cat ~/.local/share/litterbox/crash.log
+```
+
 ### Missing Dependencies
 If you get import errors, ensure PyQt6 is installed:
 ```bash
