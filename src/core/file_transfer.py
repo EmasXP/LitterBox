@@ -17,6 +17,46 @@ from PyQt6.QtCore import QObject, pyqtSignal
 CHUNK_SIZE = 1024 * 512  # 512KB
 
 
+def check_infinite_recursion(sources: List[str], destination_dir: str) -> Optional[str]:
+    """Check if copying/moving would cause infinite recursion.
+
+    Returns None if safe, or an error message string if recursion would occur.
+    """
+    dest_path = Path(os.path.abspath(destination_dir))
+
+    for source in sources:
+        src_path = Path(os.path.abspath(source))
+
+        # Skip if source doesn't exist or is not a directory
+        if not src_path.exists() or not src_path.is_dir():
+            continue
+
+        # Check if destination is inside the source directory
+        try:
+            # Use resolve() to handle symlinks and normalize paths
+            resolved_dest = dest_path.resolve()
+            resolved_src = src_path.resolve()
+
+            # Check if destination is the source itself or a subdirectory
+            if resolved_dest == resolved_src:
+                return f"Cannot copy '{src_path.name}' into itself."
+
+            # Check if destination is inside source
+            try:
+                resolved_dest.relative_to(resolved_src)
+                # If we get here, dest is inside src - this would cause infinite recursion
+                return f"Cannot copy '{src_path.name}' into its own subdirectory '{dest_path.name}'.\n\nThis would create an infinite loop."
+            except ValueError:
+                # dest is not inside src, this is fine
+                pass
+
+        except (OSError, RuntimeError):
+            # If we can't resolve paths (broken symlinks, etc), skip check for this source
+            continue
+
+    return None
+
+
 def suggest_rename(dest_path: Path) -> Path:
     parent = dest_path.parent
     stem = dest_path.stem
@@ -385,6 +425,13 @@ class FileTransferManager(QObject):
     def __init__(self):
         super().__init__()
         self._tasks: List[QObject] = []
+
+    def validate_transfer(self, sources: List[str], destination_dir: str) -> Optional[str]:
+        """Validate that a transfer operation is safe to perform.
+
+        Returns None if valid, or an error message string if invalid.
+        """
+        return check_infinite_recursion(sources, destination_dir)
 
     def start_transfer(self, sources: List[str], destination_dir: str, move: bool,
                        conflict_callback=None) -> FileTransferTask:

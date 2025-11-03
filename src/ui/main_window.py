@@ -1045,6 +1045,13 @@ class MainWindow(QMainWindow):
         if not clip or not clip.paths:
             return
         dest_dir = current_tab.current_path
+
+        # Check for infinite recursion before starting transfer
+        error_msg = self.transfer_manager.validate_transfer(clip.paths, dest_dir)
+        if error_msg:
+            QMessageBox.warning(self, "Cannot Complete Operation", error_msg)
+            return
+
         move = (clip.operation == 'cut')
         task = self.transfer_manager.start_transfer(
             clip.paths,
@@ -1070,6 +1077,13 @@ class MainWindow(QMainWindow):
                 normalized.append(abs_path)
         if not normalized:
             return
+
+        # Check for infinite recursion before starting transfer
+        error_msg = self.transfer_manager.validate_transfer(normalized, destination_dir)
+        if error_msg:
+            QMessageBox.warning(self, "Cannot Complete Operation", error_msg)
+            return
+
         task = self.transfer_manager.start_transfer(
             normalized,
             destination_dir,
