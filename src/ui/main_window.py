@@ -304,9 +304,20 @@ class FileTab(QWidget):
         # Resolve main window once (QTabWidget is the direct parent, so self.parent() was wrong)
         main_window: Any = self.window()
 
+        # Get all selected items
+        selected_items = self.file_list.get_selected_items()
+        # If the right-clicked item is not in selection, use only that item
+        if path not in selected_items:
+            selected_items = [path]
+
+        multiple_selection = len(selected_items) > 1
+
         # Open
         open_action: QAction = menu.addAction("Open")  # type: ignore[assignment]
-        if FileOperations.is_executable(path):
+        if multiple_selection:
+            if open_action:
+                open_action.setEnabled(False)  # type: ignore[attr-defined]
+        elif FileOperations.is_executable(path):
             if open_action:
                 open_action.triggered.connect(lambda: self.handle_executable_activation(path))  # type: ignore[attr-defined]
         else:
@@ -316,30 +327,38 @@ class FileTab(QWidget):
         # Open with...
         open_with_action: QAction = menu.addAction("Open with...")  # type: ignore[assignment]
         if open_with_action:
-            is_file = os.path.isfile(path)
-            if not is_file:
+            if multiple_selection:
                 open_with_action.setEnabled(False)  # type: ignore[attr-defined]
-            # Use explicit helper to avoid silent lambda failures & accept checked arg
-            open_with_action.triggered.connect(lambda _checked=False, p=path: self._open_with(p))  # type: ignore[attr-defined]
+            else:
+                is_file = os.path.isfile(path)
+                if not is_file:
+                    open_with_action.setEnabled(False)  # type: ignore[attr-defined]
+                # Use explicit helper to avoid silent lambda failures & accept checked arg
+                open_with_action.triggered.connect(lambda _checked=False, p=path: self._open_with(p))  # type: ignore[attr-defined]
 
         menu.addSeparator()
 
         # Rename
         rename_action: QAction = menu.addAction("Rename")  # type: ignore[assignment]
         if rename_action:
-            rename_action.triggered.connect(lambda: self.rename_item(path))  # type: ignore[attr-defined]
+            if multiple_selection:
+                rename_action.setEnabled(False)  # type: ignore[attr-defined]
+            else:
+                rename_action.triggered.connect(lambda: self.rename_item(path))  # type: ignore[attr-defined]
 
         menu.addSeparator()
 
         # Move to trash
-        trash_action: QAction = menu.addAction("Move to Trash")  # type: ignore[assignment]
+        trash_text = f"Move to Trash ({len(selected_items)} items)" if multiple_selection else "Move to Trash"
+        trash_action: QAction = menu.addAction(trash_text)  # type: ignore[assignment]
         if trash_action:
-            trash_action.triggered.connect(lambda: self.move_to_trash(path))  # type: ignore[attr-defined]
+            trash_action.triggered.connect(lambda: self.move_to_trash(selected_items))  # type: ignore[attr-defined]
 
         # Delete
-        delete_action: QAction = menu.addAction("Delete")  # type: ignore[assignment]
+        delete_text = f"Delete ({len(selected_items)} items)" if multiple_selection else "Delete"
+        delete_action: QAction = menu.addAction(delete_text)  # type: ignore[assignment]
         if delete_action:
-            delete_action.triggered.connect(lambda: self.delete_item(path))  # type: ignore[attr-defined]
+            delete_action.triggered.connect(lambda: self.delete_item(selected_items))  # type: ignore[attr-defined]
 
         # Clipboard actions
         menu.addSeparator()
@@ -426,31 +445,86 @@ class FileTab(QWidget):
                 self.file_list.refresh()
                 self._update_snapshot()
 
-    def move_to_trash(self, path):
-        """Move item to trash"""
-        success, result = FileOperations.move_to_trash(path)
-        if not success:
-            QMessageBox.warning(self, "Trash Failed", f"Could not move to trash:\n{result}")
-        else:
-            self.file_list.refresh()
-            self._update_snapshot()
+    def move_to_trash(self, paths):
+        """Move item(s) to trash"""
+        # Ensure paths is a list
+        if isinstance(paths, str):
+            paths = [paths]
 
-    def delete_item(self, path):
-        """Delete item permanently"""
-        name = os.path.basename(path)
-        reply = QMessageBox.question(
-            self, "Delete Permanently",
-            f"Are you sure you want to permanently delete '{name}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
+        if not paths:
+            return
+
+        failed_items = []
+        for path in paths:
+            success, result = FileOperations.move_to_trash(path)
+            if not success:
+                failed_items.append((os.path.basename(path), result))
+
+        if failed_items:
+            error_msg = "Failed to move the following items to trash:\n\n"
+            for name, error in failed_items:
+                error_msg += f"• {name}: {error}\n"
+            QMessageBox.warning(self, "Trash Failed", error_msg)
+
+        # Always refresh, even if some items failed
+        self.file_list.refresh()
+        self._update_snapshot()
+
+    def delete_item(self, paths):
+        """Delete item(s) permanently"""
+        # Ensure paths is a list
+        if isinstance(paths, str):
+            paths = [paths]
+
+        if not paths:
+            return
+
+        # Create confirmation dialog
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("Delete Permanently")
+
+        # Build message based on selection
+        if len(paths) == 1:
+            name = os.path.basename(paths[0])
+            message = f"Are you sure you want to permanently delete this item?\n\n{name}"
+        else:
+            message = f"Are you sure you want to permanently delete {len(paths)} items?\n\n"
+            # Show first few items
+            preview_count = min(5, len(paths))
+            for i in range(preview_count):
+                message += f"• {os.path.basename(paths[i])}\n"
+            if len(paths) > preview_count:
+                message += f"• ... and {len(paths) - preview_count} more"
+
+        message += "\n\nThis action cannot be undone."
+        dialog.setText(message)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+
+        # Style the dialog
+        yes_button = dialog.button(QMessageBox.StandardButton.Yes)
+        if yes_button:
+            yes_button.setText("Delete")
+
+        reply = dialog.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
-            success, result = FileOperations.delete_item(path)
-            if not success:
-                QMessageBox.warning(self, "Delete Failed", f"Could not delete item:\n{result}")
-            else:
-                self.file_list.refresh()
-                self._update_snapshot()
+            failed_items = []
+            for path in paths:
+                success, result = FileOperations.delete_item(path)
+                if not success:
+                    failed_items.append((os.path.basename(path), result))
+
+            if failed_items:
+                error_msg = "Failed to delete the following items:\n\n"
+                for name, error in failed_items:
+                    error_msg += f"• {name}: {error}\n"
+                QMessageBox.warning(self, "Delete Failed", error_msg)
+
+            # Always refresh, even if some items failed
+            self.file_list.refresh()
+            self._update_snapshot()
 
     # Removed show_properties & show_open_with_dialog from FileTab; these live on MainWindow
 

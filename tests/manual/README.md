@@ -41,6 +41,22 @@ Demonstration and testing script for the smart executable detection system. Show
 python tests/manual/smart_detection_demo.py
 ```
 
+### `multi_delete_demo.py`
+Demonstration and testing script for multi-selection delete/trash functionality. Creates a temporary test directory with sample files to verify that:
+- Multiple files can be selected
+- Context menu shows item count for multiple selections
+- Delete and trash operations work on all selected items
+- Confirmation dialogs are properly formatted
+- Error handling works for partial failures
+
+**Usage:**
+```bash
+python tests/manual/multi_delete_demo.py
+```
+
+Follow the on-screen instructions to test selecting multiple files and using the delete/trash features.
+
+
 ## Creating New Manual Scripts
 
 When creating investigation or manual test scripts:
