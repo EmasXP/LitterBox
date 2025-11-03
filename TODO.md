@@ -19,8 +19,6 @@
 * Cut+Paste: Meta data like created at, modified at, is that copied? If not, shall it be? Same with permissions.
 * When deep in tree, the path bar does not fit well
 * The "raw" path bar (the text input one) could be wider
-* Some test files are not proper test files, it seems like (at least test_copy_paste.py isn't)
-* Feels like our testing structure is wonky, there must be a better way
 * Close other tabs
 * Close tabs to the left/right
 * Middle-click to close tabs

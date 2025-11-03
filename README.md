@@ -115,6 +115,35 @@ The example use `nano`, but use whatever you enjoy.
 
 Edit the `Exec` line to contain the absolute path to LitterBox/main.py. You might need to prefix the path with `python3`. For example  `python3 /absolute/path/to/LitterBox/main.py`
 
+## Testing
+
+LitterBox uses pytest for automated testing. Tests are organized in a structured hierarchy:
+
+```
+tests/
+├── unit/          # Unit tests for individual components
+├── integration/   # Integration tests for workflows
+└── manual/        # Manual test scripts (not run automatically)
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run only unit tests
+pytest tests/unit/
+
+# Run only integration tests
+pytest tests/integration/
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+```
+
+For detailed information about the testing structure and how to write new tests, see [TESTING.md](TESTING.md).
+
 ## Troubleshooting
 
 ### Crash Logging
