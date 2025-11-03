@@ -32,3 +32,5 @@
 * Ctrl+Shift+PageUp/PageDown to move the current tab
 * Paste: Select the pasted file(s) afterwards?
 * The "Download" drag-and-drop has an User Agent with version number. Shall we make that dynamic?
+* Make sure no #RGB colors are used anywhere. Only theme compatible colors allowed.
+* What happens when the current directory is deleted? I guess we shall move the user somewhere?

@@ -131,10 +131,45 @@ class ConflictDialog(QDialog):
 
         # Rename tab
         rename_page = QWidget()
-        r_layout = QFormLayout(rename_page)
-        r_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        r_layout = QVBoxLayout(rename_page)
+
+        # Create form layout for the name input
+        form_layout = QFormLayout()
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.rename_edit = QLineEdit(self._suggest_initial_rename(filename))
-        r_layout.addRow("New name:", self.rename_edit)
+        form_layout.addRow("New name:", self.rename_edit)
+        r_layout.addLayout(form_layout)
+
+        # Add warning label (initially hidden). Use palette-derived colors for theming.
+        self.name_conflict_warning = QLabel("⚠️ This name already exists")
+        pal = self.palette()
+        # Derive a gentle warning background by blending base + highlight (light theme) or alternateBase (dark theme)
+        base = pal.color(pal.ColorRole.Base)
+        highlight = pal.color(pal.ColorRole.Highlight)
+        text_col = pal.color(pal.ColorRole.Text)
+        # Simple blend function (avoid importing extra libs)
+        def _blend(c1, c2, ratio: float):
+            r = int(c1.red() * (1 - ratio) + c2.red() * ratio)
+            g = int(c1.green() * (1 - ratio) + c2.green() * ratio)
+            b = int(c1.blue() * (1 - ratio) + c2.blue() * ratio)
+            return f"rgb({r},{g},{b})"
+        bg_css = _blend(base, highlight, 0.15)
+        border_css = _blend(highlight, base, 0.40)
+        # Neutral (not bold) text; small rounded box
+        self.name_conflict_warning.setStyleSheet(
+            "QLabel {"
+            f" background-color: {bg_css};"
+            f" color: {text_col.name()};"
+            f" border: 1px solid {border_css};"
+            " border-radius: 4px;"
+            " padding: 6px 8px;"
+            " font-size: 11px;"
+            " }"
+        )
+        self.name_conflict_warning.setVisible(False)
+        r_layout.addWidget(self.name_conflict_warning)
+
+        r_layout.addStretch(1)
         self.tabs.addTab(rename_page, "Rename")
 
         # Overwrite/Walk into tab
@@ -197,11 +232,34 @@ class ConflictDialog(QDialog):
             self.rename_edit.setSelection(0, len(stem))
 
     def _suggest_initial_rename(self, filename: str) -> str:
-        # Add " (1)" before extension if possible
+        # Find the first available name like "foo (1).txt", "foo (2).txt", etc.
+        # Check in the existing path's parent directory
+        if not self._existing_path:
+            # Fallback if no existing path provided
+            p = Path(filename)
+            stem = p.stem
+            suffix = p.suffix
+            return f"{stem} (1){suffix}" if stem else filename
+
+        parent_dir = Path(self._existing_path).parent
         p = Path(filename)
         stem = p.stem
         suffix = p.suffix
-        return f"{stem} (1){suffix}" if stem else filename
+
+        if not stem:
+            return filename
+
+        # Try incrementing numbers until we find an available name
+        n = 1
+        while True:
+            candidate = f"{stem} ({n}){suffix}"
+            candidate_path = parent_dir / candidate
+            if not candidate_path.exists():
+                return candidate
+            n += 1
+            # Safety limit to prevent infinite loop (unlikely but defensive)
+            if n > 1000:
+                return f"{stem} ({n}){suffix}"
 
     def _format_size(self, n: int) -> str:
         units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -218,7 +276,22 @@ class ConflictDialog(QDialog):
     def _update_ok_state(self):
         if self._current_mode() == 'rename':
             txt = self.rename_edit.text().strip()
-            enable = bool(txt) and txt != self._original_name
+            # Check basic validity (not empty, different from original)
+
+            # Check if the name already exists in the destination
+            name_exists = False
+            if self._existing_path:
+                parent_dir = Path(self._existing_path).parent
+                candidate_path = parent_dir / txt
+                name_exists = candidate_path.exists()
+
+            # Show/hide warning and enable/disable button
+            if name_exists:
+                self.name_conflict_warning.setVisible(True)
+                enable = False
+            else:
+                self.name_conflict_warning.setVisible(False)
+                enable = True
         else:
             enable = True
         self.ok_btn.setEnabled(enable)
