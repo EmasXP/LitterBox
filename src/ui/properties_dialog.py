@@ -70,6 +70,11 @@ class PropertiesDialog(QDialog):
         self.file_path = file_path
         self.file_info = FileOperations.get_file_info(file_path)
         self.app_manager = ApplicationManager()
+        if self.file_info and self.file_info.get('is_file'):
+            self.file_info['mime_type'] = self.app_manager.get_mime_type(self.file_path)
+        else:
+            self.file_info['mime_type'] = 'inode/directory'
+
         self.available_applications = []
         self.default_application = None
 
@@ -142,6 +147,10 @@ class PropertiesDialog(QDialog):
         else:
             file_type = "File"
         info_layout.addRow("Type:", QLabel(file_type))
+
+        # Mime type
+        if self.file_info.get('mime_type'):
+            info_layout.addRow("MIME type:", QLabel(self.file_info['mime_type']))
 
         # Location
         location = str(Path(self.file_path).parent)
