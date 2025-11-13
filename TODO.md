@@ -4,7 +4,6 @@
 
 # MEDIUM
 
-* Duplicates in the "Open with" dialog
 * Filter in "Open with..." dialog
 * Application icons in the "Open with" dialog
 * "Open with..." "Other application"

@@ -1,0 +1,1 @@
+Read the [.github/copilot-instructions.md](.github/copilot-instructions.md) and the [TESTING.md](TESTING.md) files before doing any work.

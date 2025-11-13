@@ -552,13 +552,15 @@ class ApplicationManager:
             return self._rank_cache[cache_key]
 
         # Build candidate set with scoring
-        candidates: Dict[str, Tuple[DesktopApplication, int]] = {}
+        candidates: Dict[Tuple[str, str], Tuple[DesktopApplication, int]] = {}
         all_apps = self._get_all_applications()
 
         def add_with_score(app: DesktopApplication, score: int):
-            prev = candidates.get(app.path)
+            # Normalize by name and exec command to avoid duplicates from different .desktop files
+            key = (app.name, app.exec_command)
+            prev = candidates.get(key)
             if prev is None or score > prev[1]:  # keep best score
-                candidates[app.path] = (app, score)
+                candidates[key] = (app, score)
 
         # Check for XDG system defaults for any MIME type
         default_apps = {}
@@ -616,7 +618,7 @@ class ApplicationManager:
         # Build ranked list
         ranked = sorted(
             (a for a, s in candidates.values()),
-            key=lambda a: (-candidates[a.path][1], a.name.lower())
+            key=lambda a: (-candidates[(a.name, a.exec_command)][1], a.name.lower())
         )
 
         self._rank_cache[cache_key] = ranked
