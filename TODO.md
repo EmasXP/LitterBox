@@ -4,7 +4,6 @@
 
 # MEDIUM
 
-* Del to move to trash, Ctrl+Del to delete file. Confirmation first. There can be several items selected too.
 * Duplicates in the "Open with" dialog
 * Filter in "Open with..." dialog
 * Application icons in the "Open with" dialog
@@ -34,3 +33,4 @@
 * The "Download" drag-and-drop has an User Agent with version number. Shall we make that dynamic?
 * Make sure no #RGB colors are used anywhere. Only theme compatible colors allowed.
 * What happens when the current directory is deleted? I guess we shall move the user somewhere?
+* Undo Move to Trash?

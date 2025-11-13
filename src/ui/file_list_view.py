@@ -142,6 +142,8 @@ class FileListView(QTreeView):
     escape_pressed = pyqtSignal()  # emitted when Esc pressed while list has focus
     drop_operation_requested = pyqtSignal(list, str, bool)  # paths, destination_dir, move
     drop_download_requested = pyqtSignal(list, str)  # remote_urls, destination_dir
+    trash_requested = pyqtSignal(list)  # list of selected paths to move to trash (Delete)
+    delete_requested = pyqtSignal(list)  # list of selected paths to permanently delete (Ctrl+Delete)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1005,6 +1007,18 @@ class FileListView(QTreeView):
                     current_folder_name = os.path.basename(self.current_path)
                     # Emit both parent path and folder name to select
                     self.parent_navigation_requested.emit(parent, current_folder_name)
+        elif event.key() == Qt.Key.Key_Delete:
+            # Delete key: move selection to trash (or permanent delete with Ctrl modifier)
+            selected = self.get_selected_items()
+            if not selected:
+                return
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                # Permanent delete
+                self.delete_requested.emit(selected)
+            else:
+                # Move to trash
+                self.trash_requested.emit(selected)
+            return
         elif event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp,
                            Qt.Key.Key_PageDown, Qt.Key.Key_Home, Qt.Key.Key_End]:
             # Handle navigation keys with proper scrolling

@@ -153,6 +153,9 @@ class FileTab(QWidget):
         self.file_list.rename_requested.connect(self.rename_item)
         self.file_list.drop_operation_requested.connect(self._handle_drop_operation)
         self.file_list.drop_download_requested.connect(self._handle_drop_download)
+        # Delete / Trash shortcuts from FileListView (keyboard shortcuts)
+        self.file_list.trash_requested.connect(self._handle_trash_shortcut)
+        self.file_list.delete_requested.connect(self.delete_item)
 
     def navigate_to(self, path, select_entries: Optional[List[str]] = None, ensure_visible: bool = True):
         """Navigate to the specified path and optionally select entries afterward."""
@@ -348,16 +351,30 @@ class FileTab(QWidget):
 
         menu.addSeparator()
 
-        # Move to trash
-        trash_text = f"Move to Trash ({len(selected_items)} items)" if multiple_selection else "Move to Trash"
+        # Move to trash (Delete shortcut displayed by style in its own column)
+        trash_text = (
+            f"Move to Trash ({len(selected_items)} items)" if multiple_selection else "Move to Trash"
+        )
         trash_action: QAction = menu.addAction(trash_text)  # type: ignore[assignment]
         if trash_action:
+            trash_action.setShortcut(QKeySequence(Qt.Key.Key_Delete))  # type: ignore[attr-defined]
+            try:
+                trash_action.setShortcutVisibleInContextMenu(True)  # Qt 6 API
+            except Exception:
+                pass
             trash_action.triggered.connect(lambda: self.move_to_trash(selected_items))  # type: ignore[attr-defined]
 
-        # Delete
-        delete_text = f"Delete ({len(selected_items)} items)" if multiple_selection else "Delete"
+        # Delete (Ctrl+Delete shortcut)
+        delete_text = (
+            f"Delete ({len(selected_items)} items)" if multiple_selection else "Delete"
+        )
         delete_action: QAction = menu.addAction(delete_text)  # type: ignore[assignment]
         if delete_action:
+            delete_action.setShortcut(QKeySequence("Ctrl+Del"))  # type: ignore[attr-defined]
+            try:
+                delete_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
             delete_action.triggered.connect(lambda: self.delete_item(selected_items))  # type: ignore[attr-defined]
 
         # Clipboard actions
@@ -469,6 +486,43 @@ class FileTab(QWidget):
         # Always refresh, even if some items failed
         self.file_list.refresh()
         self._update_snapshot()
+
+    def _handle_trash_shortcut(self, paths):
+        """Wrapper for Delete key shortcut that asks for confirmation before trashing.
+
+        Context menu trash action calls move_to_trash directly with NO confirmation.
+        """
+        if isinstance(paths, str):
+            paths = [paths]
+        if not paths:
+            return
+
+        # Build confirmation dialog
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setWindowTitle("Move to Trash")
+
+        if len(paths) == 1:
+            name = os.path.basename(paths[0])
+            msg = f"Move this item to the Trash?\n\n{name}"
+        else:
+            msg = f"Move {len(paths)} items to the Trash?\n\n"
+            preview_count = min(5, len(paths))
+            for i in range(preview_count):
+                msg += f"• {os.path.basename(paths[i])}\n"
+            if len(paths) > preview_count:
+                msg += f"• … and {len(paths) - preview_count} more"
+        msg += "\n\nYou can restore items from the Trash later."
+        dialog.setText(msg)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        yes_btn = dialog.button(QMessageBox.StandardButton.Yes)
+        if yes_btn:
+            yes_btn.setText("Move to Trash")
+
+        reply = dialog.exec()
+        if reply == QMessageBox.StandardButton.Yes:
+            self.move_to_trash(paths)
 
     def delete_item(self, paths):
         """Delete item(s) permanently"""
