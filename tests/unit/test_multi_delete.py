@@ -156,10 +156,9 @@ class TestMultipleSelectionDelete:
 
         # Track if warning was shown
         warning_shown = []
-        original_warning = QMessageBox.warning
         def mock_warning(*args, **kwargs):
             warning_shown.append(args)
-            return original_warning(*args, **kwargs)
+            return QMessageBox.StandardButton.Ok
 
         monkeypatch.setattr(QMessageBox, 'warning', mock_warning)
 
@@ -228,10 +227,9 @@ class TestMultipleSelectionTrash:
 
         # Track if warning was shown
         warning_shown = []
-        original_warning = QMessageBox.warning
         def mock_warning(*args, **kwargs):
             warning_shown.append(args)
-            return original_warning(*args, **kwargs)
+            return QMessageBox.StandardButton.Ok
 
         monkeypatch.setattr(QMessageBox, 'warning', mock_warning)
 
@@ -255,7 +253,7 @@ class TestMultipleSelectionTrash:
 class TestContextMenuWithMultipleSelection:
     """Tests for context menu behavior with multiple selections"""
 
-    def test_context_menu_uses_selection(self, file_tab, temp_test_dir, qapp):
+    def test_context_menu_uses_selection(self, file_tab, temp_test_dir, qapp, monkeypatch):
         """Test that context menu uses all selected items"""
         test_files = [
             os.path.join(temp_test_dir, 'file1.txt'),
@@ -267,29 +265,24 @@ class TestContextMenuWithMultipleSelection:
             # Simulate right-clicking on one of the selected items
             # The menu should use all selected items
             from PyQt6.QtCore import QPoint
+            from PyQt6.QtWidgets import QMenu
 
-            # Create a mock menu to verify the connected functions
-            with patch('PyQt6.QtWidgets.QMenu') as mock_menu_class:
-                mock_menu = MagicMock()
-                mock_menu_class.return_value = mock_menu
+            # Mock menu.exec to prevent blocking
+            original_exec = QMenu.exec
+            menu_created = []
+            def mock_exec(self, *args, **kwargs):
+                menu_created.append(self)
+                return None  # Don't actually show the menu
 
-                # Create mock actions
-                mock_actions = {}
-                def mock_add_action(text):
-                    action = MagicMock()
-                    action.text = text
-                    mock_actions[text] = action
-                    return action
+            monkeypatch.setattr(QMenu, 'exec', mock_exec)
 
-                mock_menu.addAction.side_effect = mock_add_action
+            # Show context menu
+            file_tab.show_context_menu(test_files[0], QPoint(0, 0))
 
-                # Show context menu
-                file_tab.show_context_menu(test_files[0], QPoint(0, 0))
+            # Verify menu was created
+            assert len(menu_created) > 0
 
-                # Verify menu items were created
-                assert len(mock_actions) > 0
-
-    def test_context_menu_shows_count_for_multiple_items(self, file_tab, temp_test_dir, qapp):
+    def test_context_menu_shows_count_for_multiple_items(self, file_tab, temp_test_dir, qapp, monkeypatch):
         """Test that context menu shows item count for multiple selections"""
         test_files = [
             os.path.join(temp_test_dir, 'file1.txt'),
@@ -300,29 +293,34 @@ class TestContextMenuWithMultipleSelection:
         # Mock get_selected_items to return multiple items
         with patch.object(file_tab.file_list, 'get_selected_items', return_value=test_files):
             from PyQt6.QtCore import QPoint
+            from PyQt6.QtWidgets import QMenu
 
             # Track menu action texts
             action_texts = []
+            original_add_action = QMenu.addAction
 
-            with patch('PyQt6.QtWidgets.QMenu') as mock_menu_class:
-                mock_menu = MagicMock()
-                mock_menu_class.return_value = mock_menu
+            def mock_add_action(self, *args, **kwargs):
+                action = original_add_action(self, *args, **kwargs)
+                if args:
+                    action_texts.append(args[0])
+                return action
 
-                def mock_add_action(text):
-                    action = MagicMock()
-                    action_texts.append(text)
-                    return action
+            monkeypatch.setattr(QMenu, 'addAction', mock_add_action)
 
-                mock_menu.addAction.side_effect = mock_add_action
+            # Mock menu.exec to prevent blocking
+            def mock_exec(self, *args, **kwargs):
+                return None
 
-                # Show context menu
-                file_tab.show_context_menu(test_files[0], QPoint(0, 0))
+            monkeypatch.setattr(QMenu, 'exec', mock_exec)
 
-                # Verify count appears in menu text
-                assert any("(3 items)" in text for text in action_texts), \
-                    f"Expected '(3 items)' in menu, got: {action_texts}"
+            # Show context menu
+            file_tab.show_context_menu(test_files[0], QPoint(0, 0))
 
-    def test_context_menu_disables_rename_for_multiple(self, file_tab, temp_test_dir, qapp):
+            # Verify count appears in menu text
+            assert any("(3 items)" in text for text in action_texts), \
+                f"Expected '(3 items)' in menu, got: {action_texts}"
+
+    def test_context_menu_disables_rename_for_multiple(self, file_tab, temp_test_dir, qapp, monkeypatch):
         """Test that rename is disabled for multiple selections"""
         test_files = [
             os.path.join(temp_test_dir, 'file1.txt'),
@@ -334,11 +332,30 @@ class TestContextMenuWithMultipleSelection:
             from PyQt6.QtCore import QPoint
             from PyQt6.QtWidgets import QMenu
 
-            # Actually create the menu to test enabled state
-            menu = QMenu(file_tab)
+            # Track rename actions
+            rename_actions = []
+            original_add_action = QMenu.addAction
 
-            # We need to patch QMenu in the module where it's used
-            with patch.object(file_tab, 'show_context_menu', wraps=file_tab.show_context_menu):
-                # This is a bit tricky - we want to verify the action is disabled
-                # Let's just verify the method can be called with multiple selections
-                file_tab.show_context_menu(test_files[0], QPoint(0, 0))
+            def mock_add_action(self, *args, **kwargs):
+                action = original_add_action(self, *args, **kwargs)
+                if args and "Rename" in args[0]:
+                    rename_actions.append(action)
+                return action
+
+            monkeypatch.setattr(QMenu, 'addAction', mock_add_action)
+
+            # Mock menu.exec to prevent blocking
+            def mock_exec(self, *args, **kwargs):
+                # Check the enabled state here, after the menu is fully built
+                if rename_actions:
+                    assert not rename_actions[0].isEnabled(), \
+                        "Rename action should be disabled for multiple selections"
+                return None
+
+            monkeypatch.setattr(QMenu, 'exec', mock_exec)
+
+            # Show context menu
+            file_tab.show_context_menu(test_files[0], QPoint(0, 0))
+
+            # Verify rename action was created
+            assert len(rename_actions) > 0, "Rename action was not created"
