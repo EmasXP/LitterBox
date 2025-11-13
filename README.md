@@ -6,6 +6,8 @@ _The entire codebase is written by AI._ This project is an experiment to see how
 
 I have an ambivalent relationship with vibe coding, but I realize I can’t stay set in my ways or cling to the past. If this is the future, I’d better adapt to it.
 
+![Screenhot](screenshot.png)
+
 ## Key features
 
 * "Places" drop down menu for quick access
