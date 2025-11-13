@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtTest import QTest
+from PyQt6.QtGui import QKeySequence
 
 from ui.main_window import FileTab
 
@@ -125,6 +126,36 @@ def test_context_menu_actions_have_shortcuts(qapp, temp_dir, monkeypatch):
     # Verify shortcuts are assigned (right-aligned by style, not in text)
     assert any(a.text().startswith("Move to Trash") and not a.text().endswith("Del]") and a.shortcut().toString() for a in single_actions)
     assert any(a.text().startswith("Delete") and a.shortcut().toString().lower().startswith("ctrl+del") for a in single_actions)
+
+    # Map actions by text for easier lookup
+    actions_map = {a.text(): a for a in single_actions}
+
+    # Open (Enter / Return)
+    if "Open" in actions_map:
+        open_seq = actions_map["Open"].shortcut().toString()
+        assert open_seq in ("Return", "Enter"), f"Unexpected Open shortcut: {open_seq}"
+
+    # Open with... (Ctrl+Enter / Ctrl+Return)
+    if "Open with..." in actions_map:
+        ow_seq = actions_map["Open with..."].shortcut().toString()
+        assert ow_seq in ("Ctrl+Return", "Ctrl+Enter"), f"Unexpected Open with shortcut: {ow_seq}"
+
+    # Rename (F2)
+    if "Rename" in actions_map:
+        rename_seq = actions_map["Rename"].shortcut().toString()
+        assert rename_seq == "F2", f"Unexpected Rename shortcut: {rename_seq}"
+
+    # Copy, Cut, Paste
+    for label, std in (("Copy", QKeySequence.StandardKey.Copy), ("Cut", QKeySequence.StandardKey.Cut), ("Paste", QKeySequence.StandardKey.Paste)):
+        if label in actions_map:
+            expected = QKeySequence(std).toString()
+            actual = actions_map[label].shortcut().toString()
+            assert actual == expected, f"Unexpected {label} shortcut: {actual} (expected {expected})"
+
+    # Properties (Alt+Enter / Alt+Return)
+    if "Properties" in actions_map:
+        prop_seq = actions_map["Properties"].shortcut().toString()
+        assert prop_seq in ("Alt+Return", "Alt+Enter"), f"Unexpected Properties shortcut: {prop_seq}"
 
     # Multi selection
     _select_two(tab)

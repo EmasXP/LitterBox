@@ -18,6 +18,7 @@ from core.file_operations import FileOperations
 from core.application_manager import ApplicationManager
 from datetime import datetime
 import os
+from PyQt6 import sip
 from core.clipboard_manager import GNOME_MIME, KDE_CUT_MIME
 
 INTERNAL_MIME = "application/x-litterbox-items"
@@ -626,8 +627,12 @@ class FileListView(QTreeView):
         self.save_column_widths()
 
     def _apply_all_widths(self, widths):
-        header = self.header()
-        if not header:
+        # Guard against late timer firing after widget deletion
+        try:
+            header = self.header()
+        except RuntimeError:
+            return
+        if not header or sip.isdeleted(header) or sip.isdeleted(self):
             return
         self._restoring_columns = True
         try:
@@ -762,9 +767,13 @@ class FileListView(QTreeView):
         # Defer scroll restoration until layout settles
         if not has_pending_selection:
             def _restore_scroll():
-                if vbar:
-                    # Clamp scroll value to new range
-                    vbar.setValue(min(prev_scroll, vbar.maximum()))
+                try:
+                    if vbar and not sip.isdeleted(vbar) and not sip.isdeleted(self):
+                        # Clamp scroll value to new range
+                        vbar.setValue(min(prev_scroll, vbar.maximum()))
+                except RuntimeError:
+                    # Widget or scrollbar deleted; ignore
+                    return
             QTimer.singleShot(30, _restore_scroll)
         elif pending_need_visible:
             QTimer.singleShot(0, self.ensure_current_selection_visible)

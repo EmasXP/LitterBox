@@ -326,6 +326,12 @@ class FileTab(QWidget):
         else:
             if open_action:
                 open_action.triggered.connect(lambda: FileOperations.open_with_default(path))  # type: ignore[attr-defined]
+        if open_action:
+            try:
+                open_action.setShortcut(QKeySequence(Qt.Key.Key_Return))  # Enter
+                open_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
 
         # Open with...
         open_with_action: QAction = menu.addAction("Open with...")  # type: ignore[assignment]
@@ -338,6 +344,11 @@ class FileTab(QWidget):
                     open_with_action.setEnabled(False)  # type: ignore[attr-defined]
                 # Use explicit helper to avoid silent lambda failures & accept checked arg
                 open_with_action.triggered.connect(lambda _checked=False, p=path: self._open_with(p))  # type: ignore[attr-defined]
+            try:
+                open_with_action.setShortcut(QKeySequence("Ctrl+Return"))
+                open_with_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
 
         menu.addSeparator()
 
@@ -348,6 +359,11 @@ class FileTab(QWidget):
                 rename_action.setEnabled(False)  # type: ignore[attr-defined]
             else:
                 rename_action.triggered.connect(lambda: self.rename_item(path))  # type: ignore[attr-defined]
+            try:
+                rename_action.setShortcut(QKeySequence(Qt.Key.Key_F2))
+                rename_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
 
         menu.addSeparator()
 
@@ -399,18 +415,38 @@ class FileTab(QWidget):
         copy_action: QAction = menu.addAction("Copy")  # type: ignore[assignment]
         if copy_action:
             copy_action.triggered.connect(_do_copy)  # type: ignore[attr-defined]
+            try:
+                copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+                copy_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
         cut_action: QAction = menu.addAction("Cut")  # type: ignore[assignment]
         if cut_action:
             cut_action.triggered.connect(_do_cut)  # type: ignore[attr-defined]
+            try:
+                cut_action.setShortcut(QKeySequence.StandardKey.Cut)
+                cut_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
         paste_action: QAction = menu.addAction("Paste")  # type: ignore[assignment]
         if paste_action:
             paste_action.triggered.connect(_do_paste)  # type: ignore[attr-defined]
+            try:
+                paste_action.setShortcut(QKeySequence.StandardKey.Paste)
+                paste_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
 
         # Properties (placed at the end)
         menu.addSeparator()
         properties_action: QAction = menu.addAction("Properties")  # type: ignore[assignment]
         if properties_action:
             properties_action.triggered.connect(_show_properties)  # type: ignore[attr-defined]
+            try:
+                properties_action.setShortcut(QKeySequence("Alt+Return"))
+                properties_action.setShortcutVisibleInContextMenu(True)
+            except Exception:
+                pass
 
         menu.exec(position)
 

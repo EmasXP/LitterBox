@@ -276,22 +276,25 @@ class ConflictDialog(QDialog):
     def _update_ok_state(self):
         if self._current_mode() == 'rename':
             txt = self.rename_edit.text().strip()
-            # Check basic validity (not empty, different from original)
-
-            # Check if the name already exists in the destination
-            name_exists = False
-            if self._existing_path:
-                parent_dir = Path(self._existing_path).parent
-                candidate_path = parent_dir / txt
-                name_exists = candidate_path.exists()
-
-            # Show/hide warning and enable/disable button
-            if name_exists:
-                self.name_conflict_warning.setVisible(True)
+            # Empty or original name: disable without warning
+            if not txt or txt == self._original_name:
+                self.name_conflict_warning.setVisible(False)
                 enable = False
             else:
-                self.name_conflict_warning.setVisible(False)
-                enable = True
+                # Check if the proposed new name already exists in destination
+                name_exists = False
+                if self._existing_path:
+                    parent_dir = Path(self._existing_path).parent
+                    candidate_path = parent_dir / txt
+                    name_exists = candidate_path.exists()
+
+                if name_exists:
+                    # Conflict with a different existing name -> show warning
+                    self.name_conflict_warning.setVisible(True)
+                    enable = False
+                else:
+                    self.name_conflict_warning.setVisible(False)
+                    enable = True
         else:
             enable = True
         self.ok_btn.setEnabled(enable)

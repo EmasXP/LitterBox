@@ -55,6 +55,8 @@ I have an ambivalent relationship with vibe coding, but I realize I can’t stay
 - **Alt+Shift+N**: Create new folder
 - **Ctrl+Shift+N**: Create new empty file
 - **F2**: Rename file/folder
+- **Delete**: Move selected file(s)/folder(s) to Trash
+- **Ctrl+Delete**: Permanently delete the  selected file(s)/folder(s)
 
 Note: Depending on keyboard layout these Emacs-style shortcuts may require holding Shift together with Alt to produce the < and > characters (e.g. on US keyboards Alt+Shift+, and Alt+Shift+.). On Swedish keyboards they map directly to Alt+< and Alt+Shift+<.
 

@@ -34,3 +34,4 @@
 * Make sure no #RGB colors are used anywhere. Only theme compatible colors allowed.
 * What happens when the current directory is deleted? I guess we shall move the user somewhere?
 * Undo Move to Trash?
+* Icons in the right-click-menu
