@@ -34,3 +34,5 @@
 * What happens when the current directory is deleted? I guess we shall move the user somewhere?
 * Undo Move to Trash?
 * Icons in the right-click-menu
+* Improvements to Places:
+  * Add/edit bookmarks - Maybe there's a standard for this? Qt or KDE/GNOME?

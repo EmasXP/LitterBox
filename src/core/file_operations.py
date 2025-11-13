@@ -11,24 +11,6 @@ import stat
 
 class FileOperations:
     @staticmethod
-    def get_standard_places():
-        """Get standard directory places for the places dropdown"""
-        home = Path.home()
-        places = [
-            ("Home", str(home)),
-            ("Desktop", str(home / "Desktop")),
-            ("Documents", str(home / "Documents")),
-            ("Downloads", str(home / "Downloads")),
-            ("Music", str(home / "Music")),
-            ("Pictures", str(home / "Pictures")),
-            ("Videos", str(home / "Videos")),
-            ("Root", "/"),
-        ]
-
-        # Only include directories that exist
-        return [(name, path) for name, path in places if Path(path).exists()]
-
-    @staticmethod
     def get_file_info(path):
         """Get comprehensive file information"""
         path_obj = Path(path)
