@@ -1253,8 +1253,51 @@ class FileListView(QTreeView):
         self._icon_cache[cache_key] = composed
         return composed
 
+    def _get_desktop_file_icon(self, path):
+        """Extract and return the Icon from a .desktop file if valid.
+
+        Returns QIcon object if the Icon property is found and valid, otherwise returns None.
+        """
+        if not path.endswith('.desktop'):
+            return None
+
+        try:
+            import configparser
+            config = configparser.ConfigParser(interpolation=None, strict=False)
+            config.read(path, encoding='utf-8')
+
+            if 'Desktop Entry' not in config:
+                return None
+
+            icon_name = config['Desktop Entry'].get('Icon', '').strip()
+            if not icon_name:
+                return None
+
+            # Try to load the icon from the theme or as a file path
+            icon = QIcon.fromTheme(icon_name)
+            if not icon.isNull():
+                return icon
+
+            # If not found in theme, try as absolute path
+            if os.path.isabs(icon_name) and os.path.isfile(icon_name):
+                icon = QIcon(icon_name)
+                if not icon.isNull():
+                    return icon
+
+        except Exception:
+            # If parsing fails, return None to fall back to default behavior
+            pass
+
+        return None
+
     def _file_icon_from_mime(self, path, is_executable):
         """Resolve icon for a file using MIME detection with ApplicationManager fallbacks."""
+        # Check if this is a .desktop file and try to use its Icon property
+        if path.endswith('.desktop'):
+            desktop_icon = self._get_desktop_file_icon(path)
+            if desktop_icon is not None:
+                return desktop_icon
+
         icon = QIcon()
         qmime_name = None
 
