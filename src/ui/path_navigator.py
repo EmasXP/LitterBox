@@ -32,8 +32,9 @@ class PathNavigator(QWidget):
         # Text input for edit mode
         self.path_edit = QLineEdit()
         self.path_edit.setVisible(False)
+        self.path_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.path_edit.returnPressed.connect(self.confirm_path_edit)
-        self._layout.addWidget(self.path_edit)
+        self._layout.addWidget(self.path_edit, 1)  # stretch factor of 1 to fill space
 
         # Container for path buttons
         self.button_container = QWidget()

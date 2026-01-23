@@ -16,7 +16,6 @@
 * Show "[folder name] [long dash] LitterBox" in the Application title bar
 * Cut+Paste: Meta data like created at, modified at, is that copied? If not, shall it be? Same with permissions.
 * When deep in tree, the path bar does not fit well
-* The "raw" path bar (the text input one) could be wider
 * Close other tabs
 * Close tabs to the left/right
 * Middle-click to close tabs
