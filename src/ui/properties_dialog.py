@@ -15,7 +15,7 @@ import subprocess
 import time
 
 class FolderSizeWorker(QObject):
-    """Worker that computes folder size recursively with incremental updates.
+    """Worker that computes folder size and file count recursively with incremental updates.
 
     NOTE: Using `object` signal type instead of `int` because PyQt's `int` maps to
     C++ int (typically 32-bit). Large folders can exceed 2^31-1 bytes (>2GB) and
@@ -25,6 +25,8 @@ class FolderSizeWorker(QObject):
     # Use Python object for arbitrary large integers to avoid 32-bit overflow
     progress = pyqtSignal(object)      # cumulative size in bytes (int)
     done = pyqtSignal(object)          # final size in bytes (int)
+    file_count_progress = pyqtSignal(int)  # cumulative file count
+    file_count_done = pyqtSignal(int)      # final file count
 
     def __init__(self, path: str):
         super().__init__()
@@ -36,6 +38,7 @@ class FolderSizeWorker(QObject):
 
     def run(self):
         total = 0
+        file_count = 0
         last_emit = 0.0
         try:
             for root, dirs, files in os.walk(self.path, followlinks=False):
@@ -49,6 +52,7 @@ class FolderSizeWorker(QObject):
                     try:
                         if not os.path.islink(fp):
                             total += os.path.getsize(fp)
+                            file_count += 1
                     except OSError:
                         continue
                     now = time.time()
@@ -56,11 +60,14 @@ class FolderSizeWorker(QObject):
                     if now - last_emit >= 0.05:
                         last_emit = now
                         self.progress.emit(total)
-            # Emit final size
+                        self.file_count_progress.emit(file_count)
+            # Emit final values
             self.done.emit(total)
+            self.file_count_done.emit(file_count)
         except Exception:
             # Still emit what we have to avoid spinner hanging
             self.done.emit(total)
+            self.file_count_done.emit(file_count)
 
 class PropertiesDialog(QDialog):
     """Dialog showing file/folder properties"""
@@ -82,9 +89,13 @@ class PropertiesDialog(QDialog):
         self.size_thread: QThread | None = None
         self.folder_size_worker: FolderSizeWorker | None = None
         self._last_folder_size = 0
+        self._last_file_count = 0
         self.size_value_label: QLabel | None = None
         self.size_spinner_label: QLabel | None = None
+        self.file_count_label: QLabel | None = None
+        self.file_count_spinner_label: QLabel | None = None
         self.spinner_movie: QMovie | None = None
+        self.file_count_spinner_movie: QMovie | None = None
 
         if not self.file_info:
             self.close()
@@ -180,6 +191,28 @@ class PropertiesDialog(QDialog):
             size_row_layout.addWidget(self.size_spinner_label)
             size_row_layout.addStretch()
             info_layout.addRow("Size:", size_row_widget)
+
+            # File count row for folders
+            file_count_row_widget = QWidget()
+            file_count_row_layout = QHBoxLayout(file_count_row_widget)
+            file_count_row_layout.setContentsMargins(0, 0, 0, 0)
+
+            self.file_count_label = QLabel("Calculating...")
+            self.file_count_spinner_label = QLabel()
+            if os.path.exists(spinner_path):
+                self.file_count_spinner_movie = QMovie(spinner_path)
+                if self.file_count_spinner_movie.isValid():
+                    self.file_count_spinner_label.setMovie(self.file_count_spinner_movie)
+                    self.file_count_spinner_movie.start()
+                else:
+                    self.file_count_spinner_label.setText("...")
+            else:
+                self.file_count_spinner_label.setText("...")
+            file_count_row_layout.addWidget(self.file_count_label)
+            file_count_row_layout.addWidget(self.file_count_spinner_label)
+            file_count_row_layout.addStretch()
+            info_layout.addRow("Files:", file_count_row_widget)
+
             # Start async calculation
             self.start_folder_size_calculation()
         else:
@@ -228,6 +261,8 @@ class PropertiesDialog(QDialog):
         self.size_thread.started.connect(self.folder_size_worker.run)
         self.folder_size_worker.progress.connect(self.on_folder_size_progress)
         self.folder_size_worker.done.connect(self.on_folder_size_done)
+        self.folder_size_worker.file_count_progress.connect(self.on_file_count_progress)
+        self.folder_size_worker.file_count_done.connect(self.on_file_count_done)
         self.folder_size_worker.done.connect(lambda _: self.size_thread.quit())
 
         # Ensure cleanup
@@ -249,6 +284,23 @@ class PropertiesDialog(QDialog):
             self.size_spinner_label.hide()
         if self.spinner_movie:
             self.spinner_movie.stop()
+
+    def on_file_count_progress(self, count: int):
+        """Incremental update for file count."""
+        self._last_file_count = count
+        if self.file_count_label:
+            self.file_count_label.setText(f"{count:,}")
+
+    def on_file_count_done(self, final_count: int):
+        """Finalize file count display."""
+        self._last_file_count = final_count
+        if self.file_count_label:
+            file_word = "file" if final_count == 1 else "files"
+            self.file_count_label.setText(f"{final_count:,} {file_word}")
+        if self.file_count_spinner_label:
+            self.file_count_spinner_label.hide()
+        if self.file_count_spinner_movie:
+            self.file_count_spinner_movie.stop()
 
     def create_permissions_tab(self, tab_widget):
         """Create the permissions tab"""
@@ -436,8 +488,13 @@ class PropertiesDialog(QDialog):
         """Ensure background worker stops when dialog closes."""
         if self.folder_size_worker:
             self.folder_size_worker.stop()
-        if self.size_thread and self.size_thread.isRunning():
-            # Gracefully ask thread to finish
-            self.size_thread.quit()
-            self.size_thread.wait(500)
+        if self.size_thread:
+            try:
+                if self.size_thread.isRunning():
+                    # Gracefully ask thread to finish
+                    self.size_thread.quit()
+                    self.size_thread.wait(500)
+            except RuntimeError:
+                # Thread may have already been deleted
+                pass
         super().closeEvent(event)
