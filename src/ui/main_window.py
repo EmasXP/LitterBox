@@ -18,7 +18,7 @@ from utils.settings import Settings
 from core.clipboard_manager import ClipboardManager
 from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
 from ui.rename_dialog import get_rename
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Dict
 
 class FilterBar(QFrame):
     """Filter bar that appears at the bottom when typing"""
@@ -110,6 +110,8 @@ class FileTab(QWidget):
         self._poll_timer.timeout.connect(self._poll_refresh_if_needed)
         self._poll_timer.start()
         self._last_snapshot = set()
+        # Cache for default application names (cleared on directory change)
+        self._default_app_cache: Dict[str, Optional[str]] = {}
 
         self.setup_ui()
         self.setup_connections()
@@ -162,6 +164,8 @@ class FileTab(QWidget):
         path_obj = Path(path)
         if path_obj.exists() and path_obj.is_dir():
             self.current_path = str(path_obj.resolve())
+            # Clear the default app cache when changing directories
+            self._default_app_cache.clear()
             if select_entries:
                 self.file_list.prepare_selection(select_entries, ensure_visible=ensure_visible)
             else:
@@ -232,6 +236,35 @@ class FileTab(QWidget):
             else:
                 # Open file with default application
                 FileOperations.open_with_default(path)
+
+    def get_default_app_name(self, path: str) -> Optional[str]:
+        """Get the default application name for a file path.
+
+        Uses caching to improve performance when showing context menus.
+        Returns None if no default app is found or if this is a folder/executable.
+        """
+        # Don't show app name for folders or executables
+        if os.path.isdir(path) or FileOperations.is_executable(path):
+            return None
+
+        # Check cache first
+        if path in self._default_app_cache:
+            return self._default_app_cache[path]
+
+        # Compute and cache the result
+        app_name = None
+        try:
+            from core.application_manager import ApplicationManager
+            app_manager = ApplicationManager()
+            default_app = app_manager.get_default_application(path)
+            if default_app:
+                app_name = default_app.name
+        except Exception:
+            # Silently fail - we'll just not show the app name
+            pass
+
+        self._default_app_cache[path] = app_name
+        return app_name
 
     def handle_executable_activation(self, path):
         """Handle activation of executable files with smart detection"""
@@ -315,8 +348,14 @@ class FileTab(QWidget):
 
         multiple_selection = len(selected_items) > 1
 
-        # Open
-        open_action: QAction = menu.addAction("Open")  # type: ignore[assignment]
+        # Open - show default app name if available
+        open_text = "Open"
+        if not multiple_selection:
+            default_app_name = self.get_default_app_name(path)
+            if default_app_name:
+                open_text = f"Open ({default_app_name})"
+
+        open_action: QAction = menu.addAction(open_text)  # type: ignore[assignment]
         if multiple_selection:
             if open_action:
                 open_action.setEnabled(False)  # type: ignore[attr-defined]
