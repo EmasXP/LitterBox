@@ -2,9 +2,9 @@
 Path navigation widget - displays path as clickable buttons
 """
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QPushButton, QLineEdit,
-                             QSizePolicy)
-from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QKeyEvent
+                             QSizePolicy, QCompleter)
+from PyQt6.QtCore import pyqtSignal, Qt, QDir
+from PyQt6.QtGui import QKeyEvent, QFileSystemModel
 from pathlib import Path
 from typing import List
 
@@ -34,6 +34,24 @@ class PathNavigator(QWidget):
         self.path_edit.setVisible(False)
         self.path_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.path_edit.returnPressed.connect(self.confirm_path_edit)
+
+        # Setup autocomplete for path input
+        self.completer = QCompleter()
+        self.fs_model = QFileSystemModel()
+        self.fs_model.setRootPath("")
+        self.fs_model.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot)
+        self.completer.setModel(self.fs_model)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseSensitive)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.path_edit.setCompleter(self.completer)
+
+        # Install event filter to handle Tab key
+        self.path_edit.installEventFilter(self)
+
+        # Connect textChanged to update completer (but avoid during completer navigation)
+        self._updating_from_completer = False
+        self.path_edit.textChanged.connect(self.update_completer)
+
         self._layout.addWidget(self.path_edit, 1)  # stretch factor of 1 to fill space
 
         # Container for path buttons
@@ -142,6 +160,25 @@ class PathNavigator(QWidget):
         self._pending_selection_names = []
         return hints
 
+    def update_completer(self, text):
+        """Update completer based on current text"""
+        if not text or self._updating_from_completer:
+            return
+
+        # Get the parent directory of the current text
+        path = Path(text)
+        if path.is_dir() and text.endswith('/'):
+            # If it's a directory with trailing slash, show its contents
+            parent_dir = text.rstrip('/')
+        else:
+            # If it's incomplete, show parent directory contents
+            parent_dir = str(path.parent) if path.parent != path else "/"
+
+        # Ensure the filesystem model has fetched this directory
+        index = self.fs_model.index(parent_dir)
+        if index.isValid():
+            self.fs_model.fetchMore(index)
+
     def toggle_edit_mode(self):
         """Toggle between button and text edit mode"""
         if self.edit_mode:
@@ -152,11 +189,14 @@ class PathNavigator(QWidget):
     def enter_edit_mode(self):
         """Enter text edit mode (Ctrl+L)"""
         self.edit_mode = True
-        self.path_edit.setText(str(self.current_path))
+        path_text = str(self.current_path)
+        self.path_edit.setText(path_text)
         self.path_edit.setVisible(True)
         self.button_container.setVisible(False)
         self.path_edit.setFocus()
         self.path_edit.selectAll()
+        # Trigger completer update
+        self.update_completer(path_text)
 
     def exit_edit_mode(self):
         """Exit text edit mode (Esc)"""
@@ -172,6 +212,23 @@ class PathNavigator(QWidget):
             self.set_path(new_path)
             self.path_changed.emit(str(self.current_path))
         self.exit_edit_mode()
+
+    def eventFilter(self, obj, event):
+        """Handle events for path_edit, specifically Tab key for autocomplete"""
+        if obj == self.path_edit and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Tab:
+                # Tab key: autocomplete but don't navigate
+                if self.completer.popup().isVisible():
+                    # If popup is visible, use the current completion
+                    current_completion = self.completer.currentCompletion()
+                    if current_completion:
+                        self.path_edit.setText(current_completion)
+                        self.path_edit.setFocus()
+                        # Trigger completer again to show next level suggestions
+                        self.completer.complete()
+                        return True
+                return True  # Consume Tab key event
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, a0: QKeyEvent | None):
         """Handle key press events"""
