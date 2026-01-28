@@ -486,7 +486,9 @@ class ApplicationManager:
                 desktop_paths = [
                     '/usr/share/applications',
                     '/usr/local/share/applications',
-                    os.path.expanduser('~/.local/share/applications')
+                    os.path.expanduser('~/.local/share/applications'),
+                    '/var/lib/flatpak/exports/share/applications',  # Flatpak system-wide
+                    os.path.expanduser('~/.local/share/flatpak/exports/share/applications'),  # Flatpak user
                 ]
 
                 for desktop_dir in desktop_paths:
