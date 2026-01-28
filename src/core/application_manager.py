@@ -327,6 +327,15 @@ class ApplicationManager:
             'application/x-shellscript': ['text/x-shellscript', 'application/x-sh', 'text/plain'],
             'application/x-sh': ['text/x-shellscript', 'application/x-shellscript', 'text/plain'],
             'application/x-powershell': ['text/x-powershell', 'text/plain'],
+            'application/sql': ['text/x-sql', 'text/plain'],
+            'application/toml': ['text/x-toml', 'text/plain'],
+            'application/x-toml': ['application/toml', 'text/x-toml', 'text/plain'],
+            'application/x-latex': ['text/x-tex', 'text/plain'],
+            'application/x-tex': ['text/x-tex', 'text/plain'],
+            'application/x-wine-extension-ini': ['text/x-ini', 'text/plain'],
+            'application/x-java-properties': ['text/x-java', 'text/plain'],
+            'application/graphql': ['text/x-graphql', 'text/plain'],
+            'application/x-httpd-php': ['text/x-php', 'application/x-php', 'text/plain'],
         }
 
         if primary_mime in text_like_apps:
