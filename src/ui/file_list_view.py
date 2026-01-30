@@ -96,6 +96,19 @@ class FileSortProxyModel(QSortFilterProxyModel):
             return current_sort_order == Qt.SortOrder.DescendingOrder
 
         # Both are the same type (both directories or both files)
+        # For the Size column (column 1), use the raw size in bytes for proper sorting
+        if left.column() == 1 and right.column() == 1:
+            left_size = source_model.data(left, Qt.ItemDataRole.UserRole)
+            right_size = source_model.data(right, Qt.ItemDataRole.UserRole)
+            # Handle cases where size data might be missing (directories, etc.)
+            if left_size is not None and right_size is not None:
+                return left_size < right_size
+            # If one has size and the other doesn't, the one without size comes first
+            if left_size is None and right_size is not None:
+                return True
+            if left_size is not None and right_size is None:
+                return False
+
         # For the Modified column (column 2), use the datetime data for proper sorting
         if left.column() == 2 and right.column() == 2:
             left_datetime = source_model.data(left, Qt.ItemDataRole.UserRole)
@@ -711,6 +724,9 @@ class FileListView(QTreeView):
                 pass
             size_item = QStandardItem("" if entry['is_dir'] else FileOperations.format_size(entry['size']))
             size_item.setEditable(False)
+            # Store raw size in bytes for proper sorting
+            if not entry['is_dir']:
+                size_item.setData(entry['size'], Qt.ItemDataRole.UserRole)
             modified_item = QStandardItem("")
             modified_item.setEditable(False)
             if entry.get('modified') and isinstance(entry['modified'], datetime):
