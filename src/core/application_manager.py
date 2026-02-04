@@ -286,6 +286,52 @@ class ApplicationManager:
             self._path_mime_cache[file_path] = (cache_signature[0], cache_signature[1], resolved)
         return resolved
 
+    def _appears_to_be_text(self, file_path: str, max_bytes: int = 8192) -> bool:
+        """Check if a file appears to contain plain text.
+
+        Reads the first max_bytes of the file and checks if it contains
+        printable text characters. This is useful for detecting plain-text
+        files that might have unusual MIME types.
+
+        Args:
+            file_path: Path to the file to check
+            max_bytes: Maximum number of bytes to read (default: 8192)
+
+        Returns:
+            True if the file appears to contain plain text, False otherwise
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                sample = f.read(max_bytes)
+
+            # Empty files are considered text
+            if not sample:
+                return True
+
+            # Check for null bytes (common in binary files)
+            if b'\0' in sample:
+                return False
+
+            # Decode and check if it's valid UTF-8 (or similar encoding)
+            try:
+                # Try UTF-8 first
+                sample.decode('utf-8')
+                return True
+            except UnicodeDecodeError:
+                # Try latin-1 as fallback (it accepts all byte values)
+                try:
+                    text = sample.decode('latin-1')
+                    # Check if the content is mostly printable
+                    printable_chars = sum(1 for c in text if c.isprintable() or c.isspace())
+                    ratio = printable_chars / len(text) if text else 0
+                    # If more than 85% of characters are printable, consider it text
+                    return ratio > 0.85
+                except:
+                    return False
+
+        except (OSError, IOError):
+            return False
+
     def _get_mime_types_for_file(self, file_path: str) -> List[str]:
         """Get an ordered list of MIME types for a file.
 
@@ -446,6 +492,17 @@ class ApplicationManager:
                 for variant in common_audio_formats[primary_mime]:
                     if variant not in mime_types:
                         mime_types.append(variant)
+
+        # General plain-text fallback for files that appear to be text
+        # This helps with files like JSON, YAML, config files, etc. that might
+        # not have specific applications but can be opened with text editors
+        if 'text/plain' not in mime_types:
+            # Only check if the file doesn't already have a text/* MIME type
+            # and isn't an obviously binary format
+            if primary_type not in ('text', 'image', 'audio', 'video'):
+                # Check if the file content appears to be plain text
+                if os.path.isfile(file_path) and self._appears_to_be_text(file_path):
+                    mime_types.append('text/plain')
 
         return mime_types
 
