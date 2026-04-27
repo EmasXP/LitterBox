@@ -130,12 +130,6 @@ class PropertiesDialog(QDialog):
         button_layout.setSpacing(SPACING_SM)
         button_layout.addStretch()
 
-        # Apply button (only show if file has "Open with" section)
-        if self.file_info['is_file']:
-            apply_btn = QPushButton("Apply")
-            apply_btn.clicked.connect(self.apply_changes)
-            button_layout.addWidget(apply_btn)
-
         close_btn = QPushButton("Close")
         close_btn.setDefault(True)
         close_btn.clicked.connect(self.accept)
@@ -247,13 +241,28 @@ class PropertiesDialog(QDialog):
         # Open with section (for files only)
         if self.file_info['is_file']:
             open_with_group = QGroupBox("Open With")
-            open_with_layout = QFormLayout(open_with_group)
+            open_with_outer = QVBoxLayout(open_with_group)
+            open_with_outer.setContentsMargins(0, 0, 0, 0)
+            open_with_outer.setSpacing(SPACING_SM)
+
+            open_with_form_widget = QWidget()
+            open_with_layout = QFormLayout(open_with_form_widget)
             self._style_form(open_with_layout)
 
             self.open_with_combo = QComboBox()
             self.open_with_combo.currentTextChanged.connect(self.on_application_changed)
             self.populate_open_with_applications()
             open_with_layout.addRow("Default application:", self.open_with_combo)
+            open_with_outer.addWidget(open_with_form_widget)
+
+            apply_app_row = QHBoxLayout()
+            apply_app_row.setContentsMargins(SPACING_MD, 0, SPACING_MD, SPACING_MD)
+            apply_app_row.addStretch()
+            self.apply_app_btn = QPushButton("Set as Default")
+            self.apply_app_btn.setEnabled(False)
+            self.apply_app_btn.clicked.connect(self.apply_changes)
+            apply_app_row.addWidget(self.apply_app_btn)
+            open_with_outer.addLayout(apply_app_row)
 
             layout.addWidget(open_with_group)
 
@@ -463,8 +472,14 @@ class PropertiesDialog(QDialog):
             QMessageBox.warning(self, "Permission Error", f"Could not change permissions:\n{str(e)}")
 
     def on_application_changed(self):
-        """Handle application selection change"""
-        pass
+        """Handle application selection change: enable Apply only when selection differs from current default."""
+        if not hasattr(self, 'apply_app_btn'):
+            return
+        selected = self.get_selected_application()
+        # Enable only when a real, different application is selected
+        self.apply_app_btn.setEnabled(
+            selected is not None and selected != self.default_application
+        )
 
     def get_selected_application(self) -> DesktopApplication:
         """Get the currently selected application from combo box"""
