@@ -324,4 +324,10 @@ class ConflictDialog(QDialog):
 
     def _skip(self):
         self.decision = 'skip'
+        # Honor "Apply to all" if the user checked it before clicking Skip.
+        # This lets the user skip every remaining conflict in one click.
+        try:
+            self.apply_all = self.apply_all_cb.isChecked()
+        except (AttributeError, RuntimeError):
+            pass
         self.accept()

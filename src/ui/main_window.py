@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QE
 from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QKeyEvent
 from pathlib import Path
 import os
+import threading
 
 from ui.path_navigator import PathNavigator
 from ui.places_button import PlacesButton
@@ -1265,7 +1266,16 @@ class MainWindow(QMainWindow):
         # Debounced refresh trigger on progress + on finish (final state)
         task.file_progress.connect(self._schedule_refresh)
         task.finished.connect(lambda *_: self._schedule_refresh(""))
+        # After a successful cut+paste, clear the clipboard so the moved
+        # files are not accidentally moved again on a subsequent paste.
+        if move:
+            task.finished.connect(self._clear_clipboard_if_successful)
         self.transfer_panel.setVisible(True)
+
+    def _clear_clipboard_if_successful(self, success: bool, _msg: str):
+        """Clear the system clipboard after a successful move (cut+paste)."""
+        if success:
+            ClipboardManager.clear()
 
     def handle_drop_operation(self, paths: List[str], destination_dir: str, move: bool):
         if not paths:
@@ -1311,8 +1321,7 @@ class MainWindow(QMainWindow):
         self.transfer_panel.setVisible(True)
 
     def _conflict_handler(self, existing, source):
-        """Called in worker thread: synchronously obtain a ConflictDecision via GUI thread signal."""
-        import threading
+        """Called from a worker thread: synchronously obtain a ConflictDecision via the GUI thread."""
         result_holder = {}
         done = threading.Event()
 
@@ -1320,14 +1329,11 @@ class MainWindow(QMainWindow):
             result_holder['d'] = decision
             done.set()
 
-        # Emit to GUI thread
+        # Emit to GUI thread; the dialog will run there and call complete() with the decision.
         self._conflict_bridge.request.emit(existing, source, complete)
 
-        # Wait (blocking this worker) until decision made or cancellation
-        while not done.is_set():
-            done.wait(0.05)
-            if self.transfer_manager is None:
-                break
+        # Block this worker until a decision is made.
+        done.wait()
         return result_holder.get('d', ConflictDecision('skip'))
 
     def _show_conflict_dialog(self, existing, source, complete_cb):
@@ -1346,7 +1352,7 @@ class MainWindow(QMainWindow):
                 complete_cb(ConflictDecision('rename', new_path=suggest_rename(existing)))
             return
         if dlg.decision == 'skip':
-            complete_cb(ConflictDecision('skip'))
+            complete_cb(ConflictDecision('skip', apply_all=dlg.apply_all))
             return
         if dlg.decision == 'cancel':
             complete_cb(ConflictDecision('cancel'))

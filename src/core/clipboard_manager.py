@@ -39,12 +39,23 @@ class ClipboardManager:
         QGuiApplication.clipboard().setMimeData(mime, QClipboard.Mode.Clipboard)
 
     @staticmethod
+    def clear() -> None:
+        """Clear the system clipboard.
+
+        Called after a successful cut+paste so the moved files are not
+        accidentally moved again on a subsequent paste.
+        """
+        try:
+            QGuiApplication.clipboard().clear(QClipboard.Mode.Clipboard)
+        except Exception:
+            pass
+
+    @staticmethod
     def get_files() -> Optional[ClipboardContent]:
         cb = QGuiApplication.clipboard()
         mime = cb.mimeData(QClipboard.Mode.Clipboard)
         if not mime:
-            return None
-        # GNOME format
+            return None        # GNOME format
         if mime.hasFormat(GNOME_MIME):
             try:
                 data = bytes(mime.data(GNOME_MIME)).decode('utf-8', 'ignore')
