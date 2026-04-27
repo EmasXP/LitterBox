@@ -148,8 +148,11 @@ class PropertiesDialog(QDialog):
     def create_general_tab(self, tab_widget):
         """Create the general information tab"""
         general_widget = QWidget()
-        layout = QFormLayout(general_widget)
-        self._style_form(layout)
+        # Use the same outer layout pattern as the Permissions tab so the
+        # group boxes align identically across tabs (consistent padding).
+        layout = QVBoxLayout(general_widget)
+        layout.setContentsMargins(SPACING_MD, SPACING_MD, SPACING_MD, SPACING_MD)
+        layout.setSpacing(SPACING_MD)
 
         # Basic information
         info_group = QGroupBox("Information")
