@@ -536,8 +536,16 @@ class FileOperations:
 
     @staticmethod
     def format_size(size):
-        """Format file size in human readable format"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        """Format file size in human readable format.
+
+        Bytes are shown without a decimal (e.g. ``512 B``, not ``512.0 B``)
+        since fractional bytes are meaningless. Larger units keep one decimal.
+        """
+        # Bytes: integer display
+        if size < 1024:
+            return f"{int(size)} B"
+        size = float(size) / 1024.0
+        for unit in ['KB', 'MB', 'GB', 'TB']:
             if size < 1024.0:
                 return f"{size:.1f} {unit}"
             size /= 1024.0

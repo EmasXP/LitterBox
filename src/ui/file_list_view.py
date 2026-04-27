@@ -3,7 +3,8 @@ File list view widget - displays files and folders in a detailed list
 """
 from PyQt6.QtWidgets import (QTreeWidget, QTreeWidgetItem, QHeaderView,
                              QAbstractItemView, QMenu, QTreeView, QStyledItemDelegate,
-                             QFileIconProvider, QStyleOptionViewItem, QStyle, QMessageBox)
+                             QFileIconProvider, QStyleOptionViewItem, QStyle, QMessageBox,
+                             QLabel)
 from PyQt6.QtCore import (pyqtSignal, Qt, QMimeData, QSortFilterProxyModel, QEvent,
                           QTimer, QSize, QMimeDatabase, QObject, QModelIndex, QUrl)
 from PyQt6.QtGui import (
@@ -538,6 +539,13 @@ class FileListView(QTreeView):
         """Initialize the UI"""
         # Set up columns
         self.source_model.setHorizontalHeaderLabels(["Name", "Size", "Modified"])
+        # Right-align the Size column header so it lines up with right-aligned
+        # numeric values in the cells below.
+        size_header_item = self.source_model.horizontalHeaderItem(1)
+        if size_header_item:
+            size_header_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
 
         # Configure view properties
         self.setRootIsDecorated(False)  # No expand/collapse icons
@@ -605,6 +613,24 @@ class FileListView(QTreeView):
         self._overlay_cache = {}
         self._base_icon_size = QSize(16, 16)  # standard small icon size for list view
         self._overlay_icon_size = QSize(8, 8)
+
+        # Empty-state overlay shown when an active filter hides every row.
+        # Deliberately NOT shown for genuinely empty folders, where a blank
+        # pane is the conventional and unambiguous indication.
+        self._empty_filter_label = QLabel(self.viewport())
+        self._empty_filter_label.setText("No files match the filter \u2014 press Esc to clear")
+        self._empty_filter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_filter_label.setWordWrap(True)
+        # Use disabled palette text so it reads as a hint, not a real entry.
+        self._empty_filter_label.setStyleSheet(
+            "color: palette(placeholder-text); padding: 16px; font-style: italic;"
+        )
+        self._empty_filter_label.hide()
+        # React to any proxy model row changes (filter toggle, refresh, etc.)
+        self.proxy_model.layoutChanged.connect(self._update_empty_filter_overlay)
+        self.proxy_model.rowsInserted.connect(self._update_empty_filter_overlay)
+        self.proxy_model.rowsRemoved.connect(self._update_empty_filter_overlay)
+        self.proxy_model.modelReset.connect(self._update_empty_filter_overlay)
         try:
             self._application_manager = ApplicationManager()
         except Exception:
@@ -724,6 +750,10 @@ class FileListView(QTreeView):
                 pass
             size_item = QStandardItem("" if entry['is_dir'] else FileOperations.format_size(entry['size']))
             size_item.setEditable(False)
+            # Right-align numeric size values for easier visual scanning
+            size_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
             # Store raw size in bytes for proper sorting
             if not entry['is_dir']:
                 size_item.setData(entry['size'], Qt.ItemDataRole.UserRole)
@@ -859,6 +889,44 @@ class FileListView(QTreeView):
         if not self._pending_resize_fit:
             self._pending_resize_fit = True
             QTimer.singleShot(self._fit_debounce_ms, self._post_resize_fit)
+        # Keep the empty-filter overlay covering the viewport.
+        self._reposition_empty_filter_overlay()
+
+    def _reposition_empty_filter_overlay(self):
+        """Resize the empty-state label to span the viewport."""
+        label = getattr(self, '_empty_filter_label', None)
+        vp = self.viewport()
+        if label is None or vp is None:
+            return
+        try:
+            label.setGeometry(0, 0, vp.width(), vp.height())
+        except RuntimeError:
+            pass
+
+    def _update_empty_filter_overlay(self, *_args):
+        """Show the no-matches hint only when a filter actively hides rows.
+
+        Conditions for showing:
+        - A filter pattern is currently set on the proxy model
+        - The proxy is showing zero rows
+        - The underlying source model has rows (folder is not actually empty)
+        """
+        label = getattr(self, '_empty_filter_label', None)
+        if label is None:
+            return
+        try:
+            has_filter = bool(self.proxy_model.filterRegularExpression().pattern())
+            visible_rows = self.proxy_model.rowCount()
+            source_rows = self.source_model.rowCount()
+        except RuntimeError:
+            return
+        should_show = has_filter and visible_rows == 0 and source_rows > 0
+        if should_show:
+            self._reposition_empty_filter_overlay()
+            label.raise_()
+            label.show()
+        else:
+            label.hide()
 
     def _post_resize_fit(self):
         self._pending_resize_fit = False
@@ -1362,7 +1430,18 @@ class FileListView(QTreeView):
                 icon = exec_icon
 
         if icon.isNull():
-            # QFileIconProvider fallback
+            # Last-resort theme fallback before the platform's generic '?' icon.
+            # Most files without a recognized MIME type are configuration / text
+            # snippets (LICENSE, .gitignore, etc.), so a document icon reads
+            # better than the unknown-file glyph.
+            for fallback_name in ('text-x-generic', 'text-plain', 'text-x-readme'):
+                themed = QIcon.fromTheme(fallback_name)
+                if not themed.isNull():
+                    icon = themed
+                    break
+
+        if icon.isNull():
+            # QFileIconProvider fallback (platform/native unknown-file icon)
             icon = self._icon_provider.icon(QFileIconProvider.IconType.File)
         return icon
 

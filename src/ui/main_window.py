@@ -19,6 +19,10 @@ from utils.settings import Settings
 from core.clipboard_manager import ClipboardManager
 from core.file_transfer import FileTransferManager, ConflictDecision, suggest_rename
 from ui.rename_dialog import get_rename
+from ui.style import (
+    SPACING_XS, SPACING_SM, SPACING_MD,
+    DESTRUCTIVE_BUTTON_QSS,
+)
 from typing import Optional, Any, List, Dict
 
 class FilterBar(QFrame):
@@ -36,19 +40,20 @@ class FilterBar(QFrame):
 
     def setup_ui(self):
         """Setup the filter bar UI"""
+        # Use the platform-styled panel frame; no hardcoded colors so the bar
+        # follows the active palette (works in both light and dark themes).
         self.setFrameStyle(QFrame.Shape.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #f0f0f0;
-                border: 1px solid #ccc;
-            }
-        """)
+        self.setAutoFillBackground(True)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(SPACING_MD, SPACING_SM, SPACING_MD, SPACING_SM)
+        layout.setSpacing(SPACING_SM)
 
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filter files...")
+        self.filter_edit.setPlaceholderText("Filter files (Esc to clear)")
+        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.setAccessibleName("Filter files")
+        self.filter_edit.setToolTip("Type to filter the file list. Press Esc to clear.")
         self.filter_edit.textChanged.connect(self.filter_changed)
         layout.addWidget(self.filter_edit)
 
@@ -632,10 +637,15 @@ class FileTab(QWidget):
         dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
 
-        # Style the dialog
+        # Style the dialog: make the destructive action visually distinct so users
+        # cannot accidentally confirm by reflex (Enter is mapped to the safe No).
         yes_button = dialog.button(QMessageBox.StandardButton.Yes)
         if yes_button:
-            yes_button.setText("Delete")
+            yes_button.setText("Permanently Delete")
+            yes_button.setStyleSheet(DESTRUCTIVE_BUTTON_QSS)
+        no_button = dialog.button(QMessageBox.StandardButton.No)
+        if no_button:
+            no_button.setDefault(True)
 
         reply = dialog.exec()
 
@@ -896,6 +906,7 @@ class MainWindow(QMainWindow):
 
         # Places button
         self.places_button = PlacesButton()
+        self.places_button.setAccessibleName("Places")
         self.places_button.place_selected.connect(self.navigate_to_place)
         toolbar.addWidget(self.places_button)
 
@@ -922,7 +933,8 @@ class MainWindow(QMainWindow):
         if folder_icon.isNull():
             folder_icon = QIcon.fromTheme("folder-create")
         new_folder_action = QAction(folder_icon, "New Folder", self)
-        new_folder_action.setToolTip("Create new folder (Alt+Shift+N)")
+        new_folder_action.setToolTip("New Folder (Alt+Shift+N)")
+        new_folder_action.setStatusTip("Create a new folder in the current directory")
         new_folder_action.triggered.connect(self.create_new_folder)
         toolbar.addAction(new_folder_action)
 
@@ -931,7 +943,8 @@ class MainWindow(QMainWindow):
         if file_icon.isNull():
             file_icon = QIcon.fromTheme("text-x-generic")
         new_file_action = QAction(file_icon, "New File", self)
-        new_file_action.setToolTip("Create new empty file (Ctrl+Shift+N)")
+        new_file_action.setToolTip("New File (Ctrl+Shift+N)")
+        new_file_action.setStatusTip("Create a new empty file in the current directory")
         new_file_action.triggered.connect(self.create_new_file)
         toolbar.addAction(new_file_action)
 

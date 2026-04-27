@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QMovie
 from core.file_operations import FileOperations
 from core.application_manager import ApplicationManager, DesktopApplication
+from ui.style import SPACING_SM, SPACING_MD, SPACING_LG
 from pathlib import Path
 import os
 import subprocess
@@ -107,10 +108,12 @@ class PropertiesDialog(QDialog):
     def setup_ui(self):
         """Setup the dialog UI"""
         self.setWindowTitle(f"Properties - {self.file_info['name']}")
-        self.setMinimumSize(400, 500)
+        self.setMinimumSize(420, 520)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(SPACING_LG, SPACING_LG, SPACING_LG, SPACING_LG)
+        layout.setSpacing(SPACING_MD)
 
         # Tab widget
         tab_widget = QTabWidget()
@@ -124,6 +127,7 @@ class PropertiesDialog(QDialog):
 
         # Button box
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(SPACING_SM)
         button_layout.addStretch()
 
         # Apply button (only show if file has "Open with" section)
@@ -133,19 +137,30 @@ class PropertiesDialog(QDialog):
             button_layout.addWidget(apply_btn)
 
         close_btn = QPushButton("Close")
+        close_btn.setDefault(True)
         close_btn.clicked.connect(self.accept)
         button_layout.addWidget(close_btn)
 
         layout.addLayout(button_layout)
 
+    def _style_form(self, form: QFormLayout) -> None:
+        """Apply consistent QFormLayout styling: right-aligned labels, tidy spacing."""
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(SPACING_MD)
+        form.setVerticalSpacing(SPACING_SM)
+        form.setContentsMargins(SPACING_MD, SPACING_MD, SPACING_MD, SPACING_MD)
+
     def create_general_tab(self, tab_widget):
         """Create the general information tab"""
         general_widget = QWidget()
         layout = QFormLayout(general_widget)
+        self._style_form(layout)
 
         # Basic information
         info_group = QGroupBox("Information")
         info_layout = QFormLayout(info_group)
+        self._style_form(info_layout)
 
         # Name
         info_layout.addRow("Name:", QLabel(self.file_info['name']))
@@ -233,6 +248,7 @@ class PropertiesDialog(QDialog):
         if self.file_info['is_file']:
             open_with_group = QGroupBox("Open With")
             open_with_layout = QFormLayout(open_with_group)
+            self._style_form(open_with_layout)
 
             self.open_with_combo = QComboBox()
             self.open_with_combo.currentTextChanged.connect(self.on_application_changed)
@@ -306,10 +322,13 @@ class PropertiesDialog(QDialog):
         """Create the permissions tab"""
         permissions_widget = QWidget()
         layout = QVBoxLayout(permissions_widget)
+        layout.setContentsMargins(SPACING_MD, SPACING_MD, SPACING_MD, SPACING_MD)
+        layout.setSpacing(SPACING_MD)
 
         # Permissions display
         perm_display_group = QGroupBox("Current Permissions")
         perm_display_layout = QFormLayout(perm_display_group)
+        self._style_form(perm_display_layout)
         perm_display_layout.addRow("Permissions:", QLabel(self.file_info['permissions']))
         layout.addWidget(perm_display_group)
 
