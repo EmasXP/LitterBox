@@ -35,3 +35,4 @@
 * Icons in the right-click-menu
 * Improvements to Places:
   * Add/edit bookmarks - Maybe there's a standard for this? Qt or KDE/GNOME?
+* Grey out hidden files

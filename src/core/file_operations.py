@@ -86,23 +86,91 @@ class FileOperations:
 
     @staticmethod
     def rename_item(old_path, new_name):
-        """Rename a file or folder"""
+        """Rename a file or folder.
+
+        Safe against:
+        - path-traversal (rejects '/', NUL, '.', '..')
+        - silent overwrite via TOCTOU (uses os.link+unlink for files; falls
+          back to a "rename through a temporary name" dance for dirs / FSes
+          without hardlink support)
+        - case-only renames on case-insensitive filesystems (the naive
+          ``rename`` is a no-op there; we go through a temp name)
+        """
         try:
-            # Validate filename: reject null bytes and path separators
-            if not new_name or '\x00' in new_name or '/' in new_name:
-                return False, "Invalid filename: name cannot contain '/' or null characters."
+            # Validate filename: reject null bytes, path separators, and
+            # special directory entries that could escape the parent dir.
+            if (not new_name
+                    or '\x00' in new_name
+                    or '/' in new_name
+                    or '\\' in new_name
+                    or new_name in ('.', '..')):
+                return False, "Invalid filename: name cannot contain '/', '\\\\', or be '.' / '..'."
 
             old_path_obj = Path(old_path)
+            if not old_path_obj.exists() and not old_path_obj.is_symlink():
+                return False, "Source no longer exists."
+
             new_path = old_path_obj.parent / new_name
 
-            # Check if the new name is the same as the old name (no change)
-            if new_path.samefile(old_path_obj) if new_path.exists() else new_name == old_path_obj.name:
-                return True, str(old_path_obj)  # No change needed
+            # Truly identical path (byte-equal name): nothing to do.
+            if new_path == old_path_obj:
+                return True, str(old_path_obj)
 
-            # Check if a file/folder with the new name already exists
-            if new_path.exists():
+            # Case-only rename on case-insensitive filesystems: samefile()
+            # returns True even though the user wants a visible rename. Detect
+            # this and route through a two-step temp rename below.
+            case_only = (
+                new_path.exists()
+                and new_path.samefile(old_path_obj)
+                and new_path.name != old_path_obj.name
+            )
+
+            if not case_only and new_path.exists():
                 return False, f"A file or folder named '{new_name}' already exists in this location."
 
+            if case_only:
+                # Two-step rename through a unique temp name to force the FS
+                # to update the on-disk casing.
+                import uuid
+                temp_path = old_path_obj.parent / f".litterbox-rename-{uuid.uuid4().hex}"
+                old_path_obj.rename(temp_path)
+                try:
+                    temp_path.rename(new_path)
+                except OSError:
+                    # Roll back if the second step fails for any reason.
+                    try:
+                        temp_path.rename(old_path_obj)
+                    except OSError:
+                        pass
+                    raise
+                return True, str(new_path)
+
+            # TOCTOU-safe rename for regular files: hardlink to the new name
+            # (fails if it already exists), then unlink the old name.
+            # ``os.link`` does not follow symlinks for the source on most
+            # platforms when ``follow_symlinks=False`` is supported; we keep
+            # the simple form here because it works for the common case.
+            try:
+                if old_path_obj.is_file() and not old_path_obj.is_symlink():
+                    os.link(old_path_obj, new_path)
+                    try:
+                        old_path_obj.unlink()
+                    except OSError:
+                        # Roll back the link so we don't leave two names.
+                        try:
+                            new_path.unlink()
+                        except OSError:
+                            pass
+                        raise
+                    return True, str(new_path)
+            except OSError:
+                # Cross-FS, hardlink unsupported (e.g. some FUSE/network
+                # mounts), or a race: fall through to plain rename.
+                pass
+
+            # Fallback (directories, symlinks, hardlink-unsupported FS):
+            # plain rename. There is still a small TOCTOU window here, but
+            # we've ruled out the common-case file rename above.
             old_path_obj.rename(new_path)
             return True, str(new_path)
         except (OSError, IOError) as e:
@@ -113,7 +181,13 @@ class FileOperations:
         """Delete a file or folder"""
         try:
             path_obj = Path(path)
-            if path_obj.is_dir():
+            # SECURITY: check is_symlink BEFORE is_dir, because is_dir()
+            # follows symlinks. Without this, a symlink pointing at a
+            # real directory would either fail to delete (rmtree refuses)
+            # or, worse on some Python versions, recurse into the target.
+            if path_obj.is_symlink():
+                path_obj.unlink()
+            elif path_obj.is_dir():
                 shutil.rmtree(path_obj)
             else:
                 path_obj.unlink()
@@ -125,13 +199,14 @@ class FileOperations:
     def move_to_trash(path):
         """Move item to trash using system trash"""
         try:
-            # Try to use gio trash command (most Linux desktops)
-            subprocess.run(['gio', 'trash', path], check=True)
+            # Use '--' so filenames starting with '-' aren't parsed as
+            # options (e.g. a file literally named '-rf' or '--force').
+            subprocess.run(['gio', 'trash', '--', path], check=True)
             return True, ""
         except (subprocess.CalledProcessError, FileNotFoundError):
             try:
                 # Fallback to trash-cli if available
-                subprocess.run(['trash', path], check=True)
+                subprocess.run(['trash', '--', path], check=True)
                 return True, ""
             except (subprocess.CalledProcessError, FileNotFoundError):
                 return False, "Trash command not available"
@@ -431,7 +506,7 @@ class FileOperations:
             last_error = str(e) or last_error
 
         try:
-            subprocess.run(['xdg-open', path], check=True)
+            subprocess.run(['xdg-open', '--', path], check=True)
             return True, ""
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
@@ -453,7 +528,8 @@ class FileOperations:
             # Get the directory containing the file to use as CWD
             path_obj = Path(path)
             file_dir = str(path_obj.parent)
-            subprocess.run(['xdg-open', path], check=True, cwd=file_dir)
+            # Use '--' so a filename starting with '-' isn't parsed as a flag.
+            subprocess.run(['xdg-open', '--', path], check=True, cwd=file_dir)
             return True, ""
         except Exception as e:
             return False, str(e)

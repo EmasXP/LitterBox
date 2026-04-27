@@ -280,6 +280,16 @@ class ConflictDialog(QDialog):
             if not txt or txt == self._original_name:
                 self.name_conflict_warning.setVisible(False)
                 enable = False
+            elif not self._is_valid_filename(txt):
+                # SECURITY: reject path separators, NUL, '.'/'..' and absolute
+                # paths. Without this, a crafted name like '../../etc/passwd'
+                # would let the user write outside the destination directory
+                # (or, on a move, delete an arbitrary unrelated file).
+                self.name_conflict_warning.setText(
+                    "⚠️ Invalid name: cannot contain '/', '\\', or be '.' / '..'"
+                )
+                self.name_conflict_warning.setVisible(True)
+                enable = False
             else:
                 # Check if the proposed new name already exists in destination
                 name_exists = False
@@ -290,6 +300,7 @@ class ConflictDialog(QDialog):
 
                 if name_exists:
                     # Conflict with a different existing name -> show warning
+                    self.name_conflict_warning.setText("⚠️ This name already exists")
                     self.name_conflict_warning.setVisible(True)
                     enable = False
                 else:
@@ -298,6 +309,18 @@ class ConflictDialog(QDialog):
         else:
             enable = True
         self.ok_btn.setEnabled(enable)
+
+    @staticmethod
+    def _is_valid_filename(name: str) -> bool:
+        """Reject names that could escape the destination directory."""
+        if not name or name in ('.', '..'):
+            return False
+        if '/' in name or '\\' in name or '\x00' in name:
+            return False
+        # Reject absolute-looking paths (defensive; '/' check already covers POSIX)
+        if name.startswith('/') or name.startswith('~'):
+            return False
+        return True
 
     def _on_tab_changed(self, index: int):  # noqa: ARG002 (index not used besides logic)
         # Update button label according to selected tab
@@ -311,8 +334,13 @@ class ConflictDialog(QDialog):
     def _accept(self):
         mode = self._current_mode()
         if mode == 'rename':
+            name = self.rename_edit.text().strip()
+            # Defense in depth: never accept an unsafe name even if the
+            # OK button somehow got enabled.
+            if not self._is_valid_filename(name):
+                return
             self.decision = 'rename'
-            self.new_name = self.rename_edit.text().strip()
+            self.new_name = name
         else:
             self.decision = 'overwrite'
             self.apply_all = self.apply_all_cb.isChecked()

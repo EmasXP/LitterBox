@@ -18,6 +18,99 @@ from PyQt6.QtCore import QObject, pyqtSignal
 CHUNK_SIZE = 1024 * 512  # 512KB
 
 
+# --- Linux renameat2 / RENAME_NOREPLACE support (best-effort) ---------------
+_RENAME_NOREPLACE = 1
+_renameat2 = None
+try:  # pragma: no cover - platform dependent
+    import ctypes
+    import ctypes.util
+
+    _libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+    if hasattr(_libc, "renameat2"):
+        _renameat2 = _libc.renameat2
+        _renameat2.argtypes = [
+            ctypes.c_int, ctypes.c_char_p,
+            ctypes.c_int, ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        _renameat2.restype = ctypes.c_int
+except Exception:  # pragma: no cover
+    _renameat2 = None
+
+_AT_FDCWD = -100
+
+
+def _atomic_rename_noreplace(src: Path, dest: Path) -> bool:
+    """Atomically rename ``src`` to ``dest`` only if ``dest`` does not exist.
+
+    Uses Linux's renameat2(RENAME_NOREPLACE) to close the TOCTOU window
+    between an exists() check and rename(). Returns True on success, False
+    on any error (caller should fall back to the copy path).
+    """
+    if _renameat2 is not None:
+        try:
+            import ctypes
+            res = _renameat2(
+                _AT_FDCWD, os.fsencode(str(src)),
+                _AT_FDCWD, os.fsencode(str(dest)),
+                _RENAME_NOREPLACE,
+            )
+            if res == 0:
+                return True
+            # Any error (EEXIST, EXDEV, EINVAL on unsupported FS, ...) -> fallback
+            return False
+        except Exception:
+            return False
+    # Fallback for non-Linux: best-effort exists()+rename. Race window is
+    # small and the caller will fall through to the copy path on failure.
+    try:
+        if dest.exists():
+            return False
+        os.rename(src, dest)
+        return True
+    except OSError:
+        return False
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """Return True if two paths refer to the same filesystem entry.
+
+    Resilient to non-existent destinations: compares by ``samefile`` when
+    both exist, otherwise by resolved string. Never raises.
+    """
+    try:
+        if a.exists() and b.exists():
+            return a.samefile(b)
+    except OSError:
+        pass
+    try:
+        return os.path.realpath(str(a)) == os.path.realpath(str(b))
+    except OSError:
+        return False
+
+
+def _is_safe_sibling(candidate: Path, dest: Path) -> bool:
+    """Return True if ``candidate`` lives directly inside ``dest.parent``.
+
+    Used to defend against path-traversal in user-supplied rename targets
+    (e.g. '../../etc/passwd'). Compares resolved parents so that '..',
+    symlinks, and absolute paths cannot escape the destination directory.
+    """
+    try:
+        parent_resolved = dest.parent.resolve()
+        candidate_parent_resolved = candidate.parent.resolve()
+    except OSError:
+        return False
+    if candidate_parent_resolved != parent_resolved:
+        return False
+    name = candidate.name
+    if not name or name in ('.', '..'):
+        return False
+    if '/' in name or '\\' in name or '\x00' in name:
+        return False
+    return True
+
+
 def check_infinite_recursion(sources: List[str], destination_dir: str) -> Optional[str]:
     """Check if copying/moving would cause infinite recursion.
 
@@ -156,37 +249,42 @@ class FileTransferTask(QObject):
             for src, dest, is_dir in pairs:
                 if self._cancel.is_set():
                     raise RuntimeError('Cancelled')
-                # Fast path: for move with no destination conflict, try a single
-                # rename(2). This is atomic and instant on the same filesystem,
-                # and avoids reading + rewriting every byte. On EXDEV (different
-                # devices) or any other OSError (e.g. gvfs/FUSE quirks, EACCES),
-                # silently fall back to the copy + delete path below.
+
+                # Same-path no-op detection: cut+paste in same dir, or drag
+                # to current dir. Without this, the move post-copy unlink
+                # would delete the file we just "moved" onto itself.
+                if _same_path(src, dest):
+                    if self.move:
+                        # No-op move; account for size and continue.
+                        size = self._path_size(src)
+                        self._done += size
+                        self.progress_changed.emit(self._done, self._total)
+                        self.file_progress.emit(str(dest))
+                        continue
+                    # Copy in place: auto-rename so we don't clobber the source.
+                    dest = suggest_rename(dest)
+
+                # Fast path: for move with no destination conflict, try an
+                # atomic rename. Use renameat2(RENAME_NOREPLACE) on Linux
+                # when available to close the TOCTOU window between
+                # exists()-check and rename(). Falls back to the copy +
+                # per-file delete path on EXDEV or any other OSError.
                 if self.move and not dest.exists():
                     size = self._path_size(src)
-                    try:
-                        os.rename(src, dest)
-                    except OSError:
-                        pass
-                    else:
+                    if _atomic_rename_noreplace(src, dest):
                         self._done += size
                         self.progress_changed.emit(self._done, self._total)
                         self.file_progress.emit(str(dest))
                         continue
 
                 # Conflict resolution happens inside the copier (exactly once per item).
+                # Per-file move semantics: _copy_file / _copy_dir_with_conflicts
+                # remove each successfully-copied source themselves, so files
+                # the user chose to skip are NOT deleted from the source.
                 if is_dir:
-                    copied = self._copy_dir_with_conflicts(src, dest)
+                    self._copy_dir_with_conflicts(src, dest)
                 else:
-                    copied = self._copy_file(src, dest)
-                # For move semantics: only remove the source if the copy actually happened.
-                if copied and self.move and src.exists():
-                    try:
-                        if src.is_dir():
-                            shutil.rmtree(src)
-                        else:
-                            src.unlink()
-                    except OSError:
-                        pass
+                    self._copy_file(src, dest)
             self.finished.emit(True, '')
         except Exception as e:
             if str(e) == 'Cancelled':
@@ -203,10 +301,24 @@ class FileTransferTask(QObject):
         """
         if not dest.exists():
             return dest
-        if self._apply_all_overwrite:
-            return dest
-        if self._apply_all_skip:
-            return None
+
+        # Type-mismatch protection: if the source and existing destination
+        # are different kinds (file vs directory), do NOT honor a previous
+        # 'apply to all overwrite' decision \u2014 silently rmtree-ing a
+        # directory to make room for a single file is a data-loss footgun.
+        # Always re-prompt in that case.
+        try:
+            src_is_dir = src.is_dir() and not src.is_symlink()
+            dst_is_dir = dest.is_dir() and not dest.is_symlink()
+            type_mismatch = src_is_dir != dst_is_dir
+        except OSError:
+            type_mismatch = False
+
+        if not type_mismatch:
+            if self._apply_all_overwrite:
+                return dest
+            if self._apply_all_skip:
+                return None
 
         decision = None
         if self.conflict_callback:
@@ -219,17 +331,26 @@ class FileTransferTask(QObject):
             decision = ConflictDecision('rename')
 
         if decision.action == 'overwrite':
-            if decision.apply_all:
+            # Never let an 'apply to all' propagate from a type-mismatch
+            # decision; the next file might be homogeneous and shouldn't
+            # inherit a destructive choice.
+            if decision.apply_all and not type_mismatch:
                 self._apply_all_overwrite = True
             return dest
         if decision.action == 'rename':
             new_path = decision.new_path or suggest_rename(dest)
+            # SECURITY: confine the renamed target to dest.parent to prevent
+            # path-traversal via crafted new_name (e.g. '../../etc/passwd').
+            # If the proposed path escapes the destination directory, fall
+            # back to a safe auto-suggested name.
+            if not _is_safe_sibling(new_path, dest):
+                new_path = suggest_rename(dest)
             # Defensive: if proposed rename also exists, fall back to suggest_rename
             if new_path.exists():
                 new_path = suggest_rename(dest)
             return new_path
         if decision.action == 'skip':
-            if decision.apply_all:
+            if decision.apply_all and not type_mismatch:
                 self._apply_all_skip = True
             return None
         if decision.action == 'cancel':
@@ -245,8 +366,18 @@ class FileTransferTask(QObject):
         """Recursively copy a directory tree, prompting per-conflict.
 
         Conflict resolution for ``dest`` happens exactly once at the start.
-        Returns True if the directory copy proceeded, False if it was skipped.
+        Returns True if the directory was copied (or no-oped) cleanly with
+        every child accounted for; False if any child was skipped, failed,
+        or if the user skipped this directory entirely. The return value is
+        used to decide whether the source can be removed for moves.
         """
+        # If the source is itself a symlink, copy it as a symlink rather
+        # than recursing into its target (avoids cycles and preserves
+        # link semantics). For top-level symlinked directories, _enumerate
+        # currently treats them as directories; handle that here.
+        if src.is_symlink():
+            return self._copy_symlink(src, dest)
+
         resolved = self._resolve_conflict(src, dest)
         if resolved is None:
             return False  # skip
@@ -269,25 +400,76 @@ class FileTransferTask(QObject):
             entries = list(src.iterdir())
         except OSError:
             entries = []
+        all_copied = True
         for entry in entries:
             if self._cancel.is_set():
                 raise RuntimeError('Cancelled')
             target = dest / entry.name
+            # SECURITY: do not follow symlinks into arbitrary places (could
+            # produce cycles or copy unrelated trees). Recreate the symlink
+            # at the destination instead.
+            if entry.is_symlink():
+                if not self._copy_symlink(entry, target):
+                    all_copied = False
+                continue
             if entry.is_dir():
-                self._copy_dir_with_conflicts(entry, target)
+                if not self._copy_dir_with_conflicts(entry, target):
+                    all_copied = False
             else:
-                self._copy_file(entry, target)
-        return True
+                if not self._copy_file(entry, target):
+                    all_copied = False
+
+        # For moves: remove the now-empty source dir. rmdir only succeeds
+        # if every child was copied (and removed). If the user skipped any
+        # child, the source dir keeps the skipped file(s) and is preserved.
+        if self.move and all_copied:
+            try:
+                src.rmdir()
+            except OSError:
+                # Non-empty (skipped children) or permission issue — leave it.
+                all_copied = False
+        return all_copied
 
     def _copy_file(self, src: Path, dest: Path) -> bool:
-        """Copy a single file. Returns True on success, False if skipped."""
+        """Copy a single file. Returns True on success, False if skipped.
+
+        For moves, the source file is removed after a successful copy of
+        *this* file (per-file move semantics). This guarantees that files
+        the user chose to skip are never deleted from the source.
+        """
+        # Symlinks: recreate at destination instead of dereferencing.
+        if src.is_symlink():
+            return self._copy_symlink(src, dest)
+
         resolved = self._resolve_conflict(src, dest)
         if resolved is None:
             return False
         dest = resolved
 
+        # Same-file no-op (covers in-tree corner cases beyond top-level
+        # detection in _run, e.g. when 'overwrite' resolves to the source).
+        if _same_path(src, dest):
+            # Account for the size so progress completes; do NOT delete src.
+            try:
+                self._done += src.stat().st_size
+            except OSError:
+                pass
+            self.progress_changed.emit(self._done, self._total)
+            self.file_progress.emit(str(dest))
+            return True
+
         # Type-mismatch guard: cannot write a file where a directory exists
-        if dest.exists() and dest.is_dir():
+        if dest.exists() and dest.is_dir() and not dest.is_symlink():
+            # SAFETY: refuse to silently rmtree a non-empty directory just
+            # to drop a file in its place. The conflict dialog disables
+            # this case in the UI; reaching it means a programmatic caller
+            # forced an overwrite. Skip rather than destroy user data.
+            try:
+                has_content = any(dest.iterdir())
+            except OSError:
+                has_content = True
+            if has_content:
+                return False
             try:
                 shutil.rmtree(dest)
             except OSError:
@@ -316,6 +498,14 @@ class FileTransferTask(QObject):
             except OSError:
                 pass
             os.replace(temp, dest)  # atomic; overwrites destination on POSIX
+            # For move: remove the source file now that the copy succeeded.
+            # Defensive: never unlink if src and dest resolve to the same
+            # path (would lose the only copy of the data).
+            if self.move and not _same_path(src, dest):
+                try:
+                    src.unlink()
+                except OSError:
+                    pass
             # Final emit for this file
             self.file_progress.emit(str(dest))
             return True
@@ -326,6 +516,46 @@ class FileTransferTask(QObject):
             except OSError:
                 pass
             raise
+
+    def _copy_symlink(self, src: Path, dest: Path) -> bool:
+        """Recreate a symlink at ``dest`` pointing to the same target as ``src``.
+
+        Never follows the link. Returns True on success or no-op skip handling,
+        False if the operation could not be completed.
+        """
+        try:
+            link_target = os.readlink(src)
+        except OSError:
+            return False
+
+        # Conflict resolution if something already lives at dest.
+        if dest.exists() or dest.is_symlink():
+            resolved = self._resolve_conflict(src, dest)
+            if resolved is None:
+                return False
+            dest = resolved
+            # Remove existing entry if we're going to overwrite.
+            if dest.exists() or dest.is_symlink():
+                try:
+                    if dest.is_symlink() or dest.is_file():
+                        dest.unlink()
+                    elif dest.is_dir():
+                        shutil.rmtree(dest)
+                except OSError:
+                    return False
+
+        try:
+            os.symlink(link_target, dest)
+        except OSError:
+            return False
+
+        if self.move and not _same_path(src, dest):
+            try:
+                src.unlink()
+            except OSError:
+                pass
+        self.file_progress.emit(str(dest))
+        return True
 
 
 class DownloadTask(QObject):
