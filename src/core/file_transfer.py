@@ -94,6 +94,7 @@ class FileTransferTask(QObject):
         self._total = 0
         self._done = 0
         self._apply_all_overwrite = False
+        self._apply_all_skip = False
         self._last_emit_monotonic = 0.0
         self._emit_interval = 0.2  # seconds
 
@@ -131,6 +132,22 @@ class FileTransferTask(QObject):
                     pass
         self._total = max(1, total)
 
+    def _path_size(self, path: Path) -> int:
+        """Return total byte size of a file or directory tree (best effort)."""
+        try:
+            if path.is_dir():
+                total = 0
+                for root, _dirs, files in os.walk(path):
+                    for f in files:
+                        try:
+                            total += (Path(root) / f).stat().st_size
+                        except OSError:
+                            pass
+                return total
+            return path.stat().st_size
+        except OSError:
+            return 0
+
     def _run(self):
         try:
             pairs = self._enumerate()
@@ -139,19 +156,30 @@ class FileTransferTask(QObject):
             for src, dest, is_dir in pairs:
                 if self._cancel.is_set():
                     raise RuntimeError('Cancelled')
-                # Resolve top-level conflict (folder or file)
-                final_dest = self._handle_conflict(src, dest)
-                if final_dest is None:
-                    if self._cancel.is_set():
-                        raise RuntimeError('Cancelled')
-                    continue
+                # Fast path: for move with no destination conflict, try a single
+                # rename(2). This is atomic and instant on the same filesystem,
+                # and avoids reading + rewriting every byte. On EXDEV (different
+                # devices) or any other OSError (e.g. gvfs/FUSE quirks, EACCES),
+                # silently fall back to the copy + delete path below.
+                if self.move and not dest.exists():
+                    size = self._path_size(src)
+                    try:
+                        os.rename(src, dest)
+                    except OSError:
+                        pass
+                    else:
+                        self._done += size
+                        self.progress_changed.emit(self._done, self._total)
+                        self.file_progress.emit(str(dest))
+                        continue
+
+                # Conflict resolution happens inside the copier (exactly once per item).
                 if is_dir:
-                    # Copy directory tree with per-entry conflict handling (except root already handled)
-                    self._copy_dir_with_conflicts(src, final_dest, is_root=True)
+                    copied = self._copy_dir_with_conflicts(src, dest)
                 else:
-                    self._copy_file(src, final_dest)
-                # For move semantics after copy (cross filesystem or rename fallback)
-                if self.move and src.exists():
+                    copied = self._copy_file(src, dest)
+                # For move semantics: only remove the source if the copy actually happened.
+                if copied and self.move and src.exists():
                     try:
                         if src.is_dir():
                             shutil.rmtree(src)
@@ -166,14 +194,22 @@ class FileTransferTask(QObject):
             else:
                 self.finished.emit(False, str(e))
 
-    def _handle_conflict(self, src: Path, dest: Path):
+    def _resolve_conflict(self, src: Path, dest: Path) -> Optional[Path]:
+        """Resolve a destination conflict, prompting the user if needed.
+
+        Returns the destination Path to use (possibly renamed), or None to skip.
+        Sets the cancel flag if the user picks 'cancel'.
+        Honors the 'apply to all' flags for overwrite and skip.
+        """
         if not dest.exists():
             return dest
         if self._apply_all_overwrite:
             return dest
+        if self._apply_all_skip:
+            return None
+
         decision = None
         if self.conflict_callback:
-            # Provide existing destination path and source path to callback
             try:
                 decision = self.conflict_callback(dest, src)
             except TypeError:
@@ -181,32 +217,54 @@ class FileTransferTask(QObject):
                 decision = self.conflict_callback(dest, dest)  # type: ignore
         if not decision:
             decision = ConflictDecision('rename')
+
         if decision.action == 'overwrite':
             if decision.apply_all:
                 self._apply_all_overwrite = True
             return dest
         if decision.action == 'rename':
-            return decision.new_path or suggest_rename(dest)
+            new_path = decision.new_path or suggest_rename(dest)
+            # Defensive: if proposed rename also exists, fall back to suggest_rename
+            if new_path.exists():
+                new_path = suggest_rename(dest)
+            return new_path
         if decision.action == 'skip':
+            if decision.apply_all:
+                self._apply_all_skip = True
             return None
         if decision.action == 'cancel':
             self._cancel.set()
             return None
         return dest
 
-    def _copy_dir_with_conflicts(self, src: Path, dest: Path, is_root: bool = False):
-        """Recursively copy directory with per-file and per-subdir conflict prompting.
+    # Backward-compatibility alias (older callers / tests may still reference _handle_conflict).
+    def _handle_conflict(self, src: Path, dest: Path):  # pragma: no cover
+        return self._resolve_conflict(src, dest)
 
-        Root directory conflict is assumed already resolved by caller when is_root=True.
-        For nested directories, if destination exists, treat as a conflict (prompt unless apply_all overwrite is set).
+    def _copy_dir_with_conflicts(self, src: Path, dest: Path) -> bool:
+        """Recursively copy a directory tree, prompting per-conflict.
+
+        Conflict resolution for ``dest`` happens exactly once at the start.
+        Returns True if the directory copy proceeded, False if it was skipped.
         """
-        if not is_root:
-            if dest.exists():
-                final_dest = self._handle_conflict(src, dest)
-                if final_dest is None:
-                    return  # skip this subtree
-                dest = final_dest
-        dest.mkdir(parents=True, exist_ok=True)
+        resolved = self._resolve_conflict(src, dest)
+        if resolved is None:
+            return False  # skip
+        dest = resolved
+
+        # Type-mismatch guard: cannot create a directory where a file exists
+        if dest.exists() and not dest.is_dir():
+            # User chose 'overwrite' on a file with a directory source — replace it
+            try:
+                dest.unlink()
+            except OSError:
+                return False
+
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False
+
         try:
             entries = list(src.iterdir())
         except OSError:
@@ -216,18 +274,27 @@ class FileTransferTask(QObject):
                 raise RuntimeError('Cancelled')
             target = dest / entry.name
             if entry.is_dir():
-                self._copy_dir_with_conflicts(entry, target, is_root=False)
+                self._copy_dir_with_conflicts(entry, target)
             else:
                 self._copy_file(entry, target)
+        return True
 
-    def _copy_file(self, src: Path, dest: Path):
-        # Check per-file conflict (if destination exists and overwrite-all not set)
-        if dest.exists() and not self._apply_all_overwrite:
-            new_dest = self._handle_conflict(src, dest)
-            if new_dest is None:
-                return  # skip
-            dest = new_dest
-        temp = dest.with_suffix(dest.suffix + '.part')
+    def _copy_file(self, src: Path, dest: Path) -> bool:
+        """Copy a single file. Returns True on success, False if skipped."""
+        resolved = self._resolve_conflict(src, dest)
+        if resolved is None:
+            return False
+        dest = resolved
+
+        # Type-mismatch guard: cannot write a file where a directory exists
+        if dest.exists() and dest.is_dir():
+            try:
+                shutil.rmtree(dest)
+            except OSError:
+                return False
+
+        # Use a process-unique .part filename to avoid clobbering concurrent / leftover transfers
+        temp = dest.with_suffix(dest.suffix + f'.part.{os.getpid()}.{id(self)}')
         try:
             with open(src, 'rb') as rf, open(temp, 'wb') as wf:
                 while True:
@@ -248,9 +315,10 @@ class FileTransferTask(QObject):
                 shutil.copystat(src, temp)
             except OSError:
                 pass
-            temp.rename(dest)
+            os.replace(temp, dest)  # atomic; overwrites destination on POSIX
             # Final emit for this file
             self.file_progress.emit(str(dest))
+            return True
         except Exception:
             try:
                 if temp.exists():
