@@ -19,7 +19,7 @@ class TestPlainTextDetection:
         manager = ApplicationManager()
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
             temp_path = f.name
-        
+
         try:
             assert manager._appears_to_be_text(temp_path)
         finally:
@@ -29,11 +29,11 @@ class TestPlainTextDetection:
         """JSON files should be detected as text"""
         manager = ApplicationManager()
         content = '{"name": "test", "value": 123, "nested": {"key": "value"}}'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             assert manager._appears_to_be_text(temp_path)
         finally:
@@ -48,11 +48,11 @@ value: 123
 nested:
   key: value
 """
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             assert manager._appears_to_be_text(temp_path)
         finally:
@@ -62,11 +62,11 @@ nested:
         """XML files should be detected as text"""
         manager = ApplicationManager()
         content = '<?xml version="1.0"?><root><item>test</item></root>'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.xml') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             assert manager._appears_to_be_text(temp_path)
         finally:
@@ -76,11 +76,11 @@ nested:
         """Files with Unicode content should be detected as text"""
         manager = ApplicationManager()
         content = 'Hello 世界 🌍 Привет'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             assert manager._appears_to_be_text(temp_path)
         finally:
@@ -90,11 +90,11 @@ nested:
         """Binary files with null bytes should not be detected as text"""
         manager = ApplicationManager()
         binary_content = b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09'
-        
+
         with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.bin') as f:
             f.write(binary_content)
             temp_path = f.name
-        
+
         try:
             assert not manager._appears_to_be_text(temp_path)
         finally:
@@ -105,11 +105,11 @@ nested:
         manager = ApplicationManager()
         # PNG file signature
         png_header = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
-        
+
         with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.png') as f:
             f.write(png_header)
             temp_path = f.name
-        
+
         try:
             assert not manager._appears_to_be_text(temp_path)
         finally:
@@ -120,11 +120,11 @@ nested:
         manager = ApplicationManager()
         # Create a file larger than max_bytes (8192 default)
         content = 'Hello World!\n' * 1000  # > 8KB
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             assert manager._appears_to_be_text(temp_path)
         finally:
@@ -135,11 +135,11 @@ nested:
         manager = ApplicationManager()
         # Some non-printable but no null bytes
         content = 'Hello\x01\x02World\nTest\x03Line'
-        
+
         with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.txt') as f:
             f.write(content.encode('latin-1'))
             temp_path = f.name
-        
+
         try:
             # This should still be detected as text based on the ratio
             result = manager._appears_to_be_text(temp_path)
@@ -158,11 +158,11 @@ class TestPlainTextFallback:
         """JSON files should get text/plain as a fallback"""
         manager = ApplicationManager()
         content = '{"name": "test", "value": 123}'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # Should have application/json and its fallbacks, plus text/plain
@@ -179,11 +179,11 @@ class TestPlainTextFallback:
         """YAML files should get text/plain as a fallback"""
         manager = ApplicationManager()
         content = 'name: test\nvalue: 123\n'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # YAML already has text/plain in its fallbacks, so it should be there
@@ -195,12 +195,12 @@ class TestPlainTextFallback:
         """Unknown text-like files should get text/plain fallback"""
         manager = ApplicationManager()
         content = 'This is a custom configuration file\nkey=value\n'
-        
+
         # Use an unusual extension that might return application/*
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.customconf') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # Should include text/plain as a fallback
@@ -212,11 +212,11 @@ class TestPlainTextFallback:
         """Binary files should not get text/plain fallback"""
         manager = ApplicationManager()
         binary_content = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
-        
+
         with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.png') as f:
             f.write(binary_content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # PNG files should not get text/plain fallback
@@ -229,11 +229,11 @@ class TestPlainTextFallback:
         """Text files that already have text/plain don't get duplicate"""
         manager = ApplicationManager()
         content = 'This is a plain text file\n'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # Should have text/plain
@@ -247,12 +247,12 @@ class TestPlainTextFallback:
         """Configuration files should get text/plain fallback"""
         manager = ApplicationManager()
         content = '[section]\nkey=value\nother_key=other_value\n'
-        
+
         # INI/config files
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.conf') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # Should include text/plain as a fallback
@@ -264,11 +264,11 @@ class TestPlainTextFallback:
         """Markdown files should include text/plain"""
         manager = ApplicationManager()
         content = '# Heading\n\nThis is **markdown** content.\n'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # Markdown files should have text/plain as fallback
@@ -281,11 +281,11 @@ class TestPlainTextFallback:
         """CSV files should be handled appropriately"""
         manager = ApplicationManager()
         content = 'name,age,city\nJohn,30,NYC\nJane,25,LA\n'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             mime_types = manager._get_mime_types_for_file(temp_path)
             # CSV is typically text/csv or text/plain
@@ -303,25 +303,25 @@ class TestIntegrationWithApplications:
         """JSON files should be able to find text editor applications"""
         manager = ApplicationManager()
         content = '{"name": "test"}'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             # Get applications for the JSON file
             apps = manager.get_applications_for_file(temp_path)
-            
+
             # Should be able to find at least some applications
             # (assuming text editors are installed on the test system)
             # Note: This might be 0 in minimal CI environments
             # The key is that with text/plain fallback, we increase chances
             assert isinstance(apps, list)
-            
+
             # Get the MIME types used
             mime_types = manager._get_mime_types_for_file(temp_path)
             assert 'text/plain' in mime_types
-            
+
         finally:
             os.unlink(temp_path)
 
@@ -329,21 +329,21 @@ class TestIntegrationWithApplications:
         """Files with unknown extensions but text content should find apps"""
         manager = ApplicationManager()
         content = 'This is plain text content in an unusual file.'
-        
+
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.weirdext') as f:
             f.write(content)
             temp_path = f.name
-        
+
         try:
             # Get MIME types
             mime_types = manager._get_mime_types_for_file(temp_path)
-            
+
             # Should include text/plain as fallback
             assert 'text/plain' in mime_types
-            
+
             # Should be able to query for applications
             apps = manager.get_applications_for_file(temp_path)
             assert isinstance(apps, list)
-            
+
         finally:
             os.unlink(temp_path)

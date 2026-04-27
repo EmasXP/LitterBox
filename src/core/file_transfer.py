@@ -5,6 +5,7 @@ import os
 import shutil
 import threading
 import tempfile
+import time
 import urllib.request
 import urllib.parse
 import re
@@ -239,9 +240,8 @@ class FileTransferTask(QObject):
                     self._done += len(chunk)
                     self.progress_changed.emit(self._done, self._total)
                     # Throttle file_progress to reduce UI repaint pressure
-                    import time as _t
-                    now = _t.monotonic()
-                    if now - self._last_emit_monotonic >= self._emit_interval:
+                    now = time.monotonic()
+                    if (now - self._last_emit_monotonic) >= self._emit_interval:
                         self._last_emit_monotonic = now
                         self.file_progress.emit(str(dest))
             try:

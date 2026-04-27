@@ -88,6 +88,10 @@ class FileOperations:
     def rename_item(old_path, new_name):
         """Rename a file or folder"""
         try:
+            # Validate filename: reject null bytes and path separators
+            if not new_name or '\x00' in new_name or '/' in new_name:
+                return False, "Invalid filename: name cannot contain '/' or null characters."
+
             old_path_obj = Path(old_path)
             new_path = old_path_obj.parent / new_name
 
@@ -257,7 +261,7 @@ class FileOperations:
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
                 pass
 
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        except (OSError, IOError):
             pass
 
         return False
@@ -322,11 +326,14 @@ class FileOperations:
 
             # Use gnome-terminal if available, otherwise try other common terminals
             # Use 'cd' command to change to the correct directory before running
+            quoted_path = shlex.quote(str(path))
+            quoted_cwd = shlex.quote(cwd)
+            shell_cmd = f'cd {quoted_cwd} && {quoted_path}; read -p "Press Enter to continue..."'
             terminal_commands = [
-                ['gnome-terminal', '--', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."'],
-                ['konsole', '-e', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."'],
-                ['xterm', '-e', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."'],
-                ['x-terminal-emulator', '-e', 'bash', '-c', f'cd {shlex.quote(cwd)} && {path}; read -p "Press Enter to continue..."']
+                ['gnome-terminal', '--', 'bash', '-c', shell_cmd],
+                ['konsole', '-e', 'bash', '-c', shell_cmd],
+                ['xterm', '-e', 'bash', '-c', shell_cmd],
+                ['x-terminal-emulator', '-e', 'bash', '-c', shell_cmd]
             ]
 
             for terminal_cmd in terminal_commands:

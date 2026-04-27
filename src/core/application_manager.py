@@ -141,17 +141,18 @@ class DesktopApplication:
         # Remove field codes we don't handle
         command = re.sub(r'%[icdnNvmkD]', '', command)
 
-        # Handle file arguments
+        # Handle file arguments using shlex.quote for proper escaping
+        import shlex
+        quoted_path = shlex.quote(file_path)
         if '%f' in command or '%F' in command:
-            command = re.sub(r'%[fF]', f'"{file_path}"', command)
+            command = re.sub(r'%[fF]', quoted_path, command)
         elif '%u' in command or '%U' in command:
-            command = re.sub(r'%[uU]', f'"{file_path}"', command)
+            command = re.sub(r'%[uU]', quoted_path, command)
         else:
             # If no field codes, append the file path
-            command = f"{command} \"{file_path}\""
+            command = f"{command} {quoted_path}"
 
-        # Split command into arguments (simple split, doesn't handle complex quoting)
-        import shlex
+        # Split command into arguments
         try:
             return shlex.split(command)
         except ValueError:

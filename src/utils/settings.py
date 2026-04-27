@@ -1,6 +1,7 @@
 """
 Settings management for LitterBox
 """
+import copy
 import json
 import os
 import base64
@@ -37,16 +38,16 @@ class Settings:
             # Use cached settings if file hasn't changed
             if (Settings._cached_settings is not None and
                 Settings._cache_file_mtime == current_mtime):
-                return Settings._cached_settings.copy()
+                return copy.deepcopy(Settings._cached_settings)
 
             # Load from file
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
                 # Merge with defaults to handle new settings
                 default_settings.update(loaded)
 
-                # Cache the result
-                Settings._cached_settings = default_settings.copy()
+                # Cache the result (deep copy to prevent mutation)
+                Settings._cached_settings = copy.deepcopy(default_settings)
                 Settings._cache_file_mtime = current_mtime
 
                 return default_settings
@@ -57,7 +58,7 @@ class Settings:
         """Save current settings to config file"""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         try:
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=2)
 
             # Invalidate cache after saving

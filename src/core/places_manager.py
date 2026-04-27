@@ -118,7 +118,7 @@ class PlacesManager:
             return dirs
 
         try:
-            with open(config_file, 'r') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     # Skip comments and empty lines
