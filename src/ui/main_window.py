@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMessageBox, QInputDialog, QSplitter, QFrame,
                              QMenu, QDialog, QTabBar, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QFileSystemWatcher, QObject, QEventLoop
-from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QKeyEvent
+from PyQt6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QKeyEvent, QPalette, QColor
 from pathlib import Path
 import os
 import threading
@@ -21,7 +21,6 @@ from core.file_transfer import FileTransferManager, ConflictDecision, suggest_re
 from ui.rename_dialog import get_rename
 from ui.style import (
     SPACING_XS, SPACING_SM, SPACING_MD,
-    DESTRUCTIVE_BUTTON_QSS,
 )
 from typing import Optional, Any, List, Dict
 
@@ -637,12 +636,14 @@ class FileTab(QWidget):
         dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
 
-        # Style the dialog: make the destructive action visually distinct so users
-        # cannot accidentally confirm by reflex (Enter is mapped to the safe No).
         yes_button = dialog.button(QMessageBox.StandardButton.Yes)
         if yes_button:
             yes_button.setText("Permanently Delete")
-            yes_button.setStyleSheet(DESTRUCTIVE_BUTTON_QSS)
+            palette = yes_button.palette()
+            for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+                palette.setColor(group, QPalette.ColorRole.Button, QColor("#c0392b"))
+                palette.setColor(group, QPalette.ColorRole.ButtonText, QColor("white"))
+            yes_button.setPalette(palette)
         no_button = dialog.button(QMessageBox.StandardButton.No)
         if no_button:
             no_button.setDefault(True)
